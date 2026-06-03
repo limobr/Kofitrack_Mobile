@@ -1,101 +1,107 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View, Text, TextInput, FlatList, StyleSheet,
   ActivityIndicator, TouchableOpacity, RefreshControl, Alert, Modal,
-} from 'react-native'
-import { Ionicons } from '@expo/vector-icons'
-import { useNavigation } from '@react-navigation/native'
-import api from '../api/client'
-import AsyncStorage from '@react-native-async-storage/async-storage'
-import { printDeliveryReceipt } from '../services/printService'
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
+import api from '../api/client';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { printDeliveryReceipt } from '../services/printService';
 
 interface Delivery {
-  id: number
-  coffee_type: string
-  kgs_delivered: number
-  delivery_date: string
-  delivery_time: string
-  members: { name: string; reg_no: string } | null
-  profiles: { full_name: string } | null
+  id: number;
+  coffee_type: string;
+  kgs_delivered: number;
+  delivery_date: string;
+  delivery_time: string;
+  members: { name: string; reg_no: string } | null;
+  profiles: { full_name: string } | null;
 }
 
 export default function DeliveriesScreen() {
-  const navigation = useNavigation<any>()
+  const navigation = useNavigation<any>();
 
-  const [allDeliveries, setAllDeliveries] = useState<Delivery[]>([])
-  const [search, setSearch] = useState('')
-  const [type, setType] = useState<'cherry' | 'mbuni'>('cherry')
-  const [loading, setLoading] = useState(false)
-  const [refreshing, setRefreshing] = useState(false)
-  const [error, setError] = useState('')
+  const [allDeliveries, setAllDeliveries] = useState<Delivery[]>([]);
+  const [search, setSearch] = useState('');
+  const [type, setType] = useState<'cherry' | 'mbuni'>('cherry');
+  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState('');
 
-  // Action menu
-  const [selectedItem, setSelectedItem] = useState<Delivery | null>(null)
-  const [menuVisible, setMenuVisible] = useState(false)
+  const [selectedItem, setSelectedItem] = useState<Delivery | null>(null);
+  const [menuVisible, setMenuVisible] = useState(false);
 
-  // Printer / factory settings
-  const [printerAddress, setPrinterAddress] = useState<string>('')
-  const [paperWidth, setPaperWidth] = useState<58 | 80>(58)
-  const [factorySettings, setFactorySettings] = useState<any>(null)
+  const [printerAddress, setPrinterAddress] = useState<string>('');
+  const [paperWidth, setPaperWidth] = useState<58 | 80>(58);
+  const [factorySettings, setFactorySettings] = useState<any>(null);
 
-  useEffect(() => { loadSettings() }, [])
+  useEffect(() => { loadSettings(); }, []);
 
   const loadSettings = async () => {
     try {
-      const raw = await AsyncStorage.getItem('selectedPrinter')
+      const raw = await AsyncStorage.getItem('selectedPrinter');
       if (raw) {
-        const { address } = JSON.parse(raw)
-        if (address) setPrinterAddress(address)
+        const { address } = JSON.parse(raw);
+        if (address) setPrinterAddress(address);
       }
-      const pw = await AsyncStorage.getItem('paperWidth')
-      if (pw) setPaperWidth(Number(pw) as 58 | 80)
-      const { data } = await api.get('/factory/settings')
-      setFactorySettings(data)
+      const pw = await AsyncStorage.getItem('paperWidth');
+      if (pw) setPaperWidth(Number(pw) as 58 | 80);
+      const { data } = await api.get('/factory/settings');
+      setFactorySettings(data);
     } catch (e) {}
-  }
+  };
 
   const fetchDeliveries = useCallback(async (isRefresh = false) => {
-    if (!isRefresh) setLoading(true)
-    setError('')
+    if (!isRefresh) setLoading(true);
+    setError('');
     try {
-      const { data } = await api.get('/deliveries', {
-        params: { type, sortKey: 'delivery_date', sortDir: 'desc' },
-      })
-      setAllDeliveries(data.deliveries || [])
+      const url = `/deliveries?type=${type}&sortKey=delivery_date&sortDir=desc`;
+      console.log(`📡 [Deliveries] Fetching ${url}`);
+      const { data } = await api.get(url);
+      console.log(`✅ [Deliveries] Got ${data.deliveries?.length || 0} records for ${type}`);
+      const deliveries = (data.deliveries || []).map((d: any) => ({
+        ...d,
+        kgs_delivered: Number(d.kgs_delivered),
+      }));
+      setAllDeliveries(deliveries);
     } catch (e: any) {
-      const message = e.response?.data?.error || e.message || 'Failed to load deliveries'
-      setError(message)
-      console.error('Deliveries fetch error:', e)
+      const message = e.response?.data?.error || e.message || 'Failed to load deliveries';
+      setError(message);
+      console.error(`❌ [Deliveries] Error for ${type}:`, {
+        status: e.response?.status,
+        data: e.response?.data,
+        message: e.message,
+      });
     } finally {
-      setLoading(false)
-      setRefreshing(false)
+      setLoading(false);
+      setRefreshing(false);
     }
-  }, [type])
+  }, [type]);
 
-  useEffect(() => { fetchDeliveries() }, [fetchDeliveries])
+  useEffect(() => { fetchDeliveries(); }, [fetchDeliveries]);
 
-  const onRefresh = () => { setRefreshing(true); fetchDeliveries(true) }
+  const onRefresh = () => { setRefreshing(true); fetchDeliveries(true); };
 
   const deliveries = useMemo(() => {
-    let result = [...allDeliveries]
+    let result = [...allDeliveries];
     if (search.trim()) {
-      const s = search.toLowerCase()
+      const s = search.toLowerCase();
       result = result.filter(d =>
         d.members?.name?.toLowerCase().includes(s) ||
         d.profiles?.full_name?.toLowerCase().includes(s)
-      )
+      );
     }
     result.sort((a, b) => {
-      const dateTimeA = `${a.delivery_date} ${a.delivery_time}`
-      const dateTimeB = `${b.delivery_date} ${b.delivery_time}`
-      return dateTimeB.localeCompare(dateTimeA)
-    })
-    return result
-  }, [allDeliveries, search])
+      const dateTimeA = `${a.delivery_date} ${a.delivery_time}`;
+      const dateTimeB = `${b.delivery_date} ${b.delivery_time}`;
+      return dateTimeB.localeCompare(dateTimeA);
+    });
+    return result;
+  }, [allDeliveries, search]);
 
-  // ---- Action handlers ----
   const confirmDelete = () => {
-    if (!selectedItem) return
+    if (!selectedItem) return;
     Alert.alert(
       'Delete Delivery',
       `Are you sure you want to delete delivery #${selectedItem.id}?`,
@@ -103,44 +109,42 @@ export default function DeliveriesScreen() {
         { text: 'Cancel', style: 'cancel' },
         { text: 'Delete', style: 'destructive', onPress: () => deleteDelivery(selectedItem) },
       ]
-    )
-    setMenuVisible(false)
-  }
+    );
+    setMenuVisible(false);
+  };
 
   const deleteDelivery = async (item: Delivery) => {
-    // Safety check
     if (!item.id) {
-      Alert.alert('Error', 'Invalid delivery ID')
-      return
+      Alert.alert('Error', 'Invalid delivery ID');
+      return;
     }
-    const coffeeType = item.coffee_type || type
-    const url = `/deliveries/${item.id}?type=${coffeeType}`
-    console.log('Deleting delivery:', url)
-
+    const coffeeType = item.coffee_type || type;
+    const url = `/deliveries/${item.id}?type=${coffeeType}`;
+    console.log(`🗑️ [Deliveries] Deleting ${url}`);
     try {
-      await api.delete(url)
-      fetchDeliveries()
+      await api.delete(url);
+      fetchDeliveries();
     } catch (e: any) {
-      console.error('Delete error:', e.response?.data || e.message)
-      Alert.alert('Error', e.response?.data?.error || 'Could not delete')
+      console.error('Delete error:', e.response?.data || e.message);
+      Alert.alert('Error', e.response?.data?.error || 'Could not delete');
     }
-  }
+  };
 
   const reprintReceipt = async () => {
     if (!selectedItem || !printerAddress) {
-      Alert.alert('No Printer', 'Configure a printer in Account settings.')
-      setMenuVisible(false)
-      return
+      Alert.alert('No Printer', 'Configure a printer in Account settings.');
+      setMenuVisible(false);
+      return;
     }
-    const item = selectedItem
-    const memberName = item.members?.name || 'Unknown'
-    const regNo = item.members?.reg_no || ''
-    const clerkName = item.profiles?.full_name || ''
-    const coffeeType = (item.coffee_type || type) as 'cherry' | 'mbuni'
+    const item = selectedItem;
+    const memberName = item.members?.name || 'Unknown';
+    const regNo = item.members?.reg_no || '';
+    const clerkName = item.profiles?.full_name || '';
+    const coffeeType = (item.coffee_type || type) as 'cherry' | 'mbuni';
 
     try {
       await printDeliveryReceipt(
-        memberName, regNo, item.kgs_delivered, coffeeType,
+        memberName, regNo, Number(item.kgs_delivered), coffeeType,
         item.delivery_date, item.delivery_time,
         {
           printerAddress, paperWidth,
@@ -149,51 +153,67 @@ export default function DeliveriesScreen() {
           factoryName: factorySettings?.name,
           clerk: clerkName, receiptNo: item.id,
         }
-      )
+      );
     } catch (e: any) {
-      Alert.alert('Print Error', e.message)
+      Alert.alert('Print Error', e.message);
     }
-    setMenuVisible(false)
-  }
+    setMenuVisible(false);
+  };
 
-  const renderItem = ({ item }: { item: Delivery }) => (
-    <TouchableOpacity
-      style={styles.card}
-      onLongPress={() => { setSelectedItem(item); setMenuVisible(true) }}
-      activeOpacity={0.9}
-    >
-      <View style={styles.cardHeader}>
-        <View style={styles.memberRow}>
-          <Ionicons name="person-circle-outline" size={22} color="#8c6239" />
-          <Text style={styles.memberName}>{item.members?.name || 'Unknown'}</Text>
+  const renderItem = ({ item }: { item: Delivery }) => {
+    const kgs = Number(item.kgs_delivered) || 0;
+
+    let formattedTime = item.delivery_time;
+    if (formattedTime) {
+      if (formattedTime.includes('T')) {
+        formattedTime = new Date(formattedTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      } else {
+        const parts = formattedTime.split(':');
+        formattedTime = `${parts[0]}:${parts[1]}`;
+      }
+    } else {
+      formattedTime = '—';
+    }
+
+    return (
+      <TouchableOpacity
+        style={styles.card}
+        onLongPress={() => { setSelectedItem(item); setMenuVisible(true); }}
+        activeOpacity={0.9}
+      >
+        <View style={styles.cardHeader}>
+          <View style={styles.memberRow}>
+            <Ionicons name="person-circle-outline" size={22} color="#8c6239" />
+            <Text style={styles.memberName}>{item.members?.name || 'Unknown'}</Text>
+          </View>
+          <View style={[styles.typeBadge, item.coffee_type === 'mbuni' ? styles.mbuniBadge : styles.cherryBadge]}>
+            <Text style={styles.typeBadgeText}>{item.coffee_type || type}</Text>
+          </View>
         </View>
-        <View style={[styles.typeBadge, item.coffee_type === 'mbuni' ? styles.mbuniBadge : styles.cherryBadge]}>
-          <Text style={styles.typeBadgeText}>{item.coffee_type || type}</Text>
+        <View style={styles.cardBody}>
+          <View style={styles.statItem}>
+            <Ionicons name="scale-outline" size={16} color="#6b5e53" />
+            <Text style={styles.kgsText}>{kgs.toFixed(2)} kg</Text>
+          </View>
+          <View style={styles.statItem}>
+            <Ionicons name="calendar-outline" size={16} color="#6b5e53" />
+            <Text style={styles.dateText}>{new Date(item.delivery_date).toLocaleDateString()}</Text>
+          </View>
         </View>
-      </View>
-      <View style={styles.cardBody}>
-        <View style={styles.statItem}>
-          <Ionicons name="scale-outline" size={16} color="#6b5e53" />
-          <Text style={styles.kgsText}>{item.kgs_delivered.toFixed(2)} kg</Text>
+        <View style={styles.cardFooter}>
+          <Ionicons name="time-outline" size={14} color="#6b5e53" />
+          <Text style={styles.timeText}>{formattedTime}</Text>
+          {item.profiles?.full_name && (
+            <>
+              <Text style={styles.dot}>·</Text>
+              <Ionicons name="person-outline" size={14} color="#6b5e53" />
+              <Text style={styles.clerkText}>{item.profiles.full_name}</Text>
+            </>
+          )}
         </View>
-        <View style={styles.statItem}>
-          <Ionicons name="calendar-outline" size={16} color="#6b5e53" />
-          <Text style={styles.dateText}>{new Date(item.delivery_date).toLocaleDateString()}</Text>
-        </View>
-      </View>
-      <View style={styles.cardFooter}>
-        <Ionicons name="time-outline" size={14} color="#6b5e53" />
-        <Text style={styles.timeText}>{item.delivery_time}</Text>
-        {item.profiles?.full_name && (
-          <>
-            <Text style={styles.dot}>·</Text>
-            <Ionicons name="person-outline" size={14} color="#6b5e53" />
-            <Text style={styles.clerkText}>{item.profiles.full_name}</Text>
-          </>
-        )}
-      </View>
-    </TouchableOpacity>
-  )
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -229,6 +249,7 @@ export default function DeliveriesScreen() {
         </TouchableOpacity>
       </View>
 
+      {/* Error display */}
       {error ? (
         <View style={styles.errorBanner}>
           <Ionicons name="alert-circle" size={18} color="#c62828" />
@@ -237,6 +258,7 @@ export default function DeliveriesScreen() {
         </View>
       ) : null}
 
+      {/* Content */}
       {loading && !refreshing ? (
         <ActivityIndicator size="large" color="#8c6239" style={{ marginTop: 24 }} />
       ) : (
@@ -256,6 +278,7 @@ export default function DeliveriesScreen() {
         />
       )}
 
+      {/* FAB */}
       <TouchableOpacity style={styles.fab} activeOpacity={0.85} onPress={() => navigation.navigate('RecordDelivery')}>
         <Ionicons name="add" size={28} color="#faf9f6" />
       </TouchableOpacity>
@@ -280,10 +303,10 @@ export default function DeliveriesScreen() {
         </TouchableOpacity>
       </Modal>
     </View>
-  )
+  );
 }
 
-// ==================== Styles (identical to your last version) ====================
+// ==================== Styles (unchanged) ====================
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#faf9f6', paddingHorizontal: 16, paddingTop: 8 },
   searchRow: { marginBottom: 12 },
@@ -326,4 +349,4 @@ const styles = StyleSheet.create({
   menuItemText: { fontSize: 16, marginLeft: 12, color: '#1a1512' },
   menuCancel: { marginTop: 12, alignItems: 'center' },
   menuCancelText: { fontSize: 16, fontWeight: '600', color: '#6b5e53' },
-})
+});

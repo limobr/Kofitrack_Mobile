@@ -11,6 +11,7 @@ import DashboardScreen from '../screens/DashboardScreen'
 import RecordDeliveryScreen from '../screens/RecordDeliveryScreen'
 import RecordTransactionScreen from '../screens/RecordTransactionScreen'
 import AddMemberScreen from '../screens/AddMemberScreen'
+import EditMemberScreen from '../screens/EditMemberScreen'   // ✅ new
 import MembersScreen from '../screens/MembersScreen'
 import DeliveriesScreen from '../screens/DeliveriesScreen'
 import TransactionsScreen from '../screens/TransactionsScreen'
@@ -104,6 +105,14 @@ export default function AppNavigator() {
                 options={{
                   headerShown: true,
                   header: () => <Header title="Add Member" showBack={true} />,
+                }}
+              />
+              <Stack.Screen
+                name="EditMember"
+                component={EditMemberScreen}
+                options={{
+                  headerShown: true,
+                  header: () => <Header title="Edit Member" showBack={true} />,
                 }}
               />
               <Stack.Screen

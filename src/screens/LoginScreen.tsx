@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import {
   View,
   Text,
@@ -14,19 +14,32 @@ import {
 } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { useAuth } from '../contexts/AuthContext'
-import { supabase } from '../contexts/AuthContext'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-
-const WEB_PORTAL_URL = 'https://kofi-track-web.vercel.app'
+import api, { API_BASE_URL } from '../api/client'
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const { signIn, signOut } = useAuth()
+  const { signIn, signOut, user } = useAuth()
   const insets = useSafeAreaInsets()
   const passwordRef = useRef<TextInput>(null)
+
+  // Watch for user role after login
+  useEffect(() => {
+    if (user && user.role !== 'worker') {
+      Alert.alert(
+        'Clerk Portal Only',
+        'This app is for clerks (workers) to record deliveries and transactions.\n\nIf you are a factory administrator, please use the web portal to manage your factory:',
+        [
+          { text: 'Open Web Portal', onPress: () => Linking.openURL(`${API_BASE_URL}/factory`) },
+          { text: 'OK', onPress: async () => { await signOut() }, style: 'cancel' },
+        ]
+      )
+    }
+  }, [user])
 
   const handleLogin = async () => {
     setError('')
@@ -37,38 +50,15 @@ export default function LoginScreen() {
     setLoading(true)
     try {
       await signIn(email.trim(), password)
-
-      const { data: { user } } = await supabase.auth.getUser()
-      if (user) {
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('role')
-          .eq('id', user.id)
-          .single()
-
-        if (profileError || !profile) {
-          setError('Unable to verify your account. Please contact support.')
-          await signOut()
-          setLoading(false)
-          return
-        }
-
-        if (profile.role !== 'worker') {
-          Alert.alert(
-            'Clerk Portal Only',
-            'This app is for clerks (workers) to record deliveries and transactions.\n\nIf you are a factory administrator, please use the web portal to manage your factory:',
-            [
-              { text: 'Open Web Portal', onPress: () => Linking.openURL(WEB_PORTAL_URL) },
-              { text: 'OK', onPress: async () => { await signOut() }, style: 'cancel' },
-            ]
-          )
-          setLoading(false)
-          return
-        }
-      }
-      // navigation happens automatically via AuthContext
+      // The useEffect above will handle role check
     } catch (e: any) {
-      setError(e.message || 'Login failed. Please try again.')
+      let message = e.message || 'Login failed. Please try again.'
+      if (message.includes('email_verified')) {
+        message = 'Please verify your email before logging in. Check your inbox.'
+      } else if (message.includes('CredentialsSignin') || message.includes('Invalid')) {
+        message = 'Invalid email or password.'
+      }
+      setError(message)
     } finally {
       setLoading(false)
     }
@@ -77,9 +67,9 @@ export default function LoginScreen() {
   const handleForgotPassword = () => {
     Alert.alert(
       'Reset Password',
-      `To reset your password, please visit the KofiTrack web portal:\n\n${WEB_PORTAL_URL}/forgot-password`,
+      `To reset your password, please visit the KofiTrack web portal:\n\n${API_BASE_URL}/forgot-password`,
       [
-        { text: 'Open in Browser', onPress: () => Linking.openURL(`${WEB_PORTAL_URL}/forgot-password`) },
+        { text: 'Open in Browser', onPress: () => Linking.openURL(`${API_BASE_URL}/forgot-password`) },
         { text: 'OK', style: 'cancel' },
       ]
     )
@@ -97,7 +87,6 @@ export default function LoginScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.inner}>
-          {/* Logo area */}
           <View style={styles.logoContainer}>
             <View style={styles.logoCircle}>
               <Ionicons name="cafe" size={48} color="#faf9f6" />
@@ -106,12 +95,10 @@ export default function LoginScreen() {
             <Text style={styles.subtitle}>Clerk Portal</Text>
           </View>
 
-          {/* Form card */}
           <View style={styles.formCard}>
             <Text style={styles.welcomeText}>Welcome back</Text>
             <Text style={styles.instructionText}>Sign in to start recording</Text>
 
-            {/* Email field */}
             <View style={styles.inputWrapper}>
               <Ionicons name="mail-outline" size={20} color="#8c6239" style={styles.inputIcon} />
               <TextInput
@@ -128,7 +115,6 @@ export default function LoginScreen() {
               />
             </View>
 
-            {/* Password field */}
             <View style={styles.inputWrapper}>
               <Ionicons name="lock-closed-outline" size={20} color="#8c6239" style={styles.inputIcon} />
               <TextInput
@@ -137,14 +123,23 @@ export default function LoginScreen() {
                 placeholderTextColor="#9e8e7e"
                 value={password}
                 onChangeText={setPassword}
-                secureTextEntry
+                secureTextEntry={!showPassword}
                 style={styles.input}
                 returnKeyType="done"
                 onSubmitEditing={handleLogin}
               />
+              <TouchableOpacity
+                onPress={() => setShowPassword(!showPassword)}
+                style={styles.eyeButton}
+              >
+                <Ionicons
+                  name={showPassword ? 'eye-off' : 'eye'}
+                  size={22}
+                  color="#8c6239"
+                />
+              </TouchableOpacity>
             </View>
 
-            {/* Error message */}
             {error ? (
               <View style={styles.errorBox}>
                 <Ionicons name="alert-circle" size={18} color="#c62828" />
@@ -152,7 +147,6 @@ export default function LoginScreen() {
               </View>
             ) : null}
 
-            {/* Login button */}
             <TouchableOpacity
               onPress={handleLogin}
               disabled={loading}
@@ -166,7 +160,6 @@ export default function LoginScreen() {
               )}
             </TouchableOpacity>
 
-            {/* Forgot password */}
             <TouchableOpacity style={styles.forgotBtn} onPress={handleForgotPassword}>
               <Text style={styles.forgotText}>Forgot password?</Text>
             </TouchableOpacity>
@@ -210,6 +203,10 @@ const styles = StyleSheet.create({
     flex: 1, paddingVertical: 14, paddingRight: 14,
     fontSize: 16, color: '#1a1512',
     fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
+  },
+  eyeButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   errorBox: {
     flexDirection: 'row', alignItems: 'center',

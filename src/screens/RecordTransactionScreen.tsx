@@ -7,7 +7,6 @@ import {
 import { Ionicons } from '@expo/vector-icons'
 import { useNavigation } from '@react-navigation/native'
 import api from '../api/client'
-import { supabase } from '../contexts/AuthContext'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { printTransactionReceipt } from '../services/printService'
 
@@ -27,7 +26,7 @@ export default function RecordTransactionScreen() {
   const [searchingBuyer, setSearchingBuyer] = useState(false)
 
   // Print‑related
-  const [printReceipt, setPrintReceipt] = useState(true)            // default on
+  const [printReceipt, setPrintReceipt] = useState(true)
   const [printerConfigured, setPrinterConfigured] = useState(false)
   const [bluetoothOn, setBluetoothOn] = useState(true)
   const [factorySettings, setFactorySettings] = useState<any>(null)
@@ -56,12 +55,11 @@ export default function RecordTransactionScreen() {
     }, 3000)
   }
 
-  // Enforce toggle off if cannot print
   useEffect(() => {
     if (!canPrint) setPrintReceipt(false)
   }, [canPrint])
 
-  // Load settings (including persisted print preference)
+  // Load settings
   useEffect(() => {
     (async () => {
       try {
@@ -74,62 +72,36 @@ export default function RecordTransactionScreen() {
         const { data: factoryData } = await api.get('/factory/settings')
         setFactorySettings(factoryData)
 
-        const { data: { user } } = await supabase.auth.getUser()
-        if (user) {
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('full_name')
-            .eq('id', user.id)
-            .single()
-          if (profile) setClerkName(profile.full_name || '')
+        const { data: profileData } = await api.get('/profile')
+        if (profileData?.full_name) setClerkName(profileData.full_name)
 
-          const { data: factoryProfile } = await supabase
-            .from('profiles')
-            .select('factory_id')
-            .eq('id', user.id)
-            .single()
-          if (factoryProfile?.factory_id) {
-            const { data: season } = await supabase
-              .from('seasons')
-              .select('name')
-              .eq('factory_id', factoryProfile.factory_id)
-              .eq('is_active', true)
-              .maybeSingle()
-            if (season) setActiveSeasonName(season.name)
-          }
-        }
+        const { data: seasonData } = await api.get('/seasons/active')
+        if (seasonData?.name) setActiveSeasonName(seasonData.name)
 
-        // Persisted print preference (default true)
         const savedPrint = await AsyncStorage.getItem('printReceiptEnabled')
-        if (savedPrint !== null) {
-          // only override if the user previously set it
-          setPrintReceipt(savedPrint === 'true')
-        }
+        if (savedPrint !== null) setPrintReceipt(savedPrint === 'true')
       } catch (e) {} finally {
         setLoadingSettings(false)
       }
 
-      let BleModule: any = null
-      try { BleModule = require('react-native-ble-plx') } catch (_) {}
-      if (BleModule) {
+      try {
+        const BleModule = require('react-native-ble-plx')
         const manager = new BleModule.BleManager()
-        manager.state().then((state: string) => {
-          setBluetoothOn(state === 'PoweredOn')
-        }).catch(() => {})
-      }
+        const state = await manager.state()
+        setBluetoothOn(state === 'PoweredOn')
+      } catch (_) {}
     })()
   }, [])
 
-  // Persist print preference whenever it changes
   useEffect(() => {
     AsyncStorage.setItem('printReceiptEnabled', String(printReceipt))
   }, [printReceipt])
 
   const fetchSellerCumulative = async (sellerId: string, coffeeType: string) => {
     try {
-      const { data: cumData } = await api.get(`/cumulatives/member?member_id=${sellerId}&type=${coffeeType}`)
-      setCumulative(cumData)
-      return cumData
+      const { data } = await api.get(`/cumulatives/member?member_id=${sellerId}&type=${coffeeType}`)
+      setCumulative(data)
+      return data
     } catch (e: any) {
       showToast(e.response?.data?.error || 'Failed to load totals', 'error')
       return null
@@ -140,7 +112,6 @@ export default function RecordTransactionScreen() {
     if (seller) fetchSellerCumulative(seller.id, type)
   }, [type])
 
-  // Auto‑scroll to bottom when weight input is focused
   const handleWeightFocus = () => {
     scrollViewRef.current?.scrollToEnd({ animated: true })
   }
@@ -269,7 +240,14 @@ export default function RecordTransactionScreen() {
       keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
     >
       {toast && (
-        <Animated.View style={[styles.toastOverlay, toast.type === 'success' ? styles.toastSuccess : styles.toastError, { opacity: toastOpacity, transform: [{ translateY: toastTranslateY }] }]} pointerEvents="none">
+        <Animated.View
+          style={[
+            styles.toastOverlay,
+            toast.type === 'success' ? styles.toastSuccess : styles.toastError,
+            { opacity: toastOpacity, transform: [{ translateY: toastTranslateY }] },
+          ]}
+          pointerEvents="none"
+        >
           <Ionicons name={toast.type === 'success' ? 'checkmark-circle' : 'alert-circle'} size={20} color={toast.type === 'success' ? '#2e7d32' : '#c62828'} />
           <Text style={styles.toastText}>{toast.text}</Text>
         </Animated.View>
@@ -280,7 +258,6 @@ export default function RecordTransactionScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        {/* Print toggle */}
         <View style={styles.printerCard}>
           <View style={styles.toggleRow}>
             <View style={styles.toggleLabelGroup}>
@@ -318,11 +295,20 @@ export default function RecordTransactionScreen() {
 
         <Text style={styles.label}>Seller Reg No</Text>
         <View style={styles.searchRow}>
-          <TextInput placeholder="e.g. 1" placeholderTextColor="#9e8e7e" value={sellerReg} onChangeText={setSellerReg} style={styles.searchInput} keyboardType="numeric" onSubmitEditing={searchSeller} />
+          <TextInput
+            placeholder="e.g. 1"
+            placeholderTextColor="#9e8e7e"
+            value={sellerReg}
+            onChangeText={setSellerReg}
+            style={styles.searchInput}
+            keyboardType="numeric"
+            onSubmitEditing={searchSeller}
+          />
           <TouchableOpacity onPress={searchSeller} style={styles.searchBtn} disabled={searching}>
             {searching ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="search" size={20} color="#fff" />}
           </TouchableOpacity>
         </View>
+
         {seller && (
           <View style={styles.memberCard}>
             <View style={styles.memberHeader}>
@@ -343,11 +329,20 @@ export default function RecordTransactionScreen() {
 
         <Text style={styles.label}>Buyer Reg No</Text>
         <View style={styles.searchRow}>
-          <TextInput placeholder="e.g. 2" placeholderTextColor="#9e8e7e" value={buyerReg} onChangeText={setBuyerReg} style={styles.searchInput} keyboardType="numeric" onSubmitEditing={searchBuyer} />
+          <TextInput
+            placeholder="e.g. 2"
+            placeholderTextColor="#9e8e7e"
+            value={buyerReg}
+            onChangeText={setBuyerReg}
+            style={styles.searchInput}
+            keyboardType="numeric"
+            onSubmitEditing={searchBuyer}
+          />
           <TouchableOpacity onPress={searchBuyer} style={styles.searchBtn} disabled={searchingBuyer}>
             {searchingBuyer ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="search" size={20} color="#fff" />}
           </TouchableOpacity>
         </View>
+
         {buyer && (
           <View style={styles.buyerInfo}>
             <Ionicons name="checkmark-circle" size={18} color="#2e7d32" />
@@ -367,7 +362,11 @@ export default function RecordTransactionScreen() {
           onFocus={handleWeightFocus}
         />
 
-        <TouchableOpacity onPress={saveTransaction} disabled={loading || !seller || !buyer} style={[styles.saveBtn, (loading || !seller || !buyer) && styles.saveBtnDisabled]}>
+        <TouchableOpacity
+          onPress={saveTransaction}
+          disabled={loading || !seller || !buyer}
+          style={[styles.saveBtn, (loading || !seller || !buyer) && styles.saveBtnDisabled]}
+        >
           {loading ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.saveBtnText}>Save Transaction</Text>}
         </TouchableOpacity>
       </ScrollView>

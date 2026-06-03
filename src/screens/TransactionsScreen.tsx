@@ -60,7 +60,12 @@ export default function TransactionsScreen() {
       const { data } = await api.get('/transactions', {
         params: { type, sortKey: 'transaction_date', sortDir: 'desc' },
       })
-      setAllTransactions(data.transactions || [])
+      // Convert kgs_transacted to number
+      const transactions = (data.transactions || []).map((t: any) => ({
+        ...t,
+        kgs_transacted: Number(t.kgs_transacted),
+      }))
+      setAllTransactions(transactions)
     } catch (e: any) {
       const message = e.response?.data?.error || e.message || 'Failed to load transactions'
       setError(message)
@@ -127,11 +132,12 @@ export default function TransactionsScreen() {
       return
     }
     const item = selectedItem
+    const kgs = Number(item.kgs_transacted) || 0
     try {
       await printTransactionReceipt(
         item.seller?.name || 'Unknown', item.seller?.reg_no || '',
         item.buyer?.name || 'Unknown', item.buyer?.reg_no || '',
-        item.kgs_transacted,
+        kgs,
         (item.coffee_type || type) as 'cherry' | 'mbuni',
         item.transaction_date, item.transaction_time,
         {
@@ -149,49 +155,66 @@ export default function TransactionsScreen() {
     setMenuVisible(false)
   }
 
-  const renderItem = ({ item }: { item: Transaction }) => (
-    <TouchableOpacity
-      style={styles.card}
-      onLongPress={() => { setSelectedItem(item); setMenuVisible(true) }}
-      activeOpacity={0.9}
-    >
-      <View style={styles.cardHeader}>
-        <View style={styles.partyRow}>
-          <Ionicons name="arrow-up-circle-outline" size={18} color="#c62828" />
-          <Text style={styles.partyName} numberOfLines={1}>{item.seller?.name || '—'}</Text>
+  const renderItem = ({ item }: { item: Transaction }) => {
+    const kgs = Number(item.kgs_transacted) || 0
+
+    // Format time (same as deliveries)
+    let formattedTime = item.transaction_time
+    if (formattedTime) {
+      if (formattedTime.includes('T')) {
+        formattedTime = new Date(formattedTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      } else {
+        const parts = formattedTime.split(':')
+        formattedTime = `${parts[0]}:${parts[1]}`
+      }
+    } else {
+      formattedTime = '—'
+    }
+
+    return (
+      <TouchableOpacity
+        style={styles.card}
+        onLongPress={() => { setSelectedItem(item); setMenuVisible(true) }}
+        activeOpacity={0.9}
+      >
+        <View style={styles.cardHeader}>
+          <View style={styles.partyRow}>
+            <Ionicons name="arrow-up-circle-outline" size={18} color="#c62828" />
+            <Text style={styles.partyName} numberOfLines={1}>{item.seller?.name || '—'}</Text>
+          </View>
+          <Ionicons name="arrow-forward" size={16} color="#9e8e7e" />
+          <View style={styles.partyRow}>
+            <Ionicons name="arrow-down-circle-outline" size={18} color="#2e7d32" />
+            <Text style={styles.partyName} numberOfLines={1}>{item.buyer?.name || '—'}</Text>
+          </View>
+          <View style={[styles.typeBadge, item.coffee_type === 'mbuni' ? styles.mbuniBadge : styles.cherryBadge]}>
+            <Text style={styles.typeBadgeText}>{item.coffee_type || type}</Text>
+          </View>
         </View>
-        <Ionicons name="arrow-forward" size={16} color="#9e8e7e" />
-        <View style={styles.partyRow}>
-          <Ionicons name="arrow-down-circle-outline" size={18} color="#2e7d32" />
-          <Text style={styles.partyName} numberOfLines={1}>{item.buyer?.name || '—'}</Text>
+        <View style={styles.cardBody}>
+          <View style={styles.statItem}>
+            <Ionicons name="scale-outline" size={16} color="#6b5e53" />
+            <Text style={styles.kgsText}>{kgs.toFixed(2)} kg</Text>
+          </View>
+          <View style={styles.statItem}>
+            <Ionicons name="calendar-outline" size={16} color="#6b5e53" />
+            <Text style={styles.dateText}>{new Date(item.transaction_date).toLocaleDateString()}</Text>
+          </View>
         </View>
-        <View style={[styles.typeBadge, item.coffee_type === 'mbuni' ? styles.mbuniBadge : styles.cherryBadge]}>
-          <Text style={styles.typeBadgeText}>{item.coffee_type || type}</Text>
+        <View style={styles.cardFooter}>
+          <Ionicons name="time-outline" size={14} color="#6b5e53" />
+          <Text style={styles.timeText}>{formattedTime}</Text>
+          {item.profiles?.full_name && (
+            <>
+              <Text style={styles.dot}>·</Text>
+              <Ionicons name="person-outline" size={14} color="#6b5e53" />
+              <Text style={styles.clerkText}>{item.profiles.full_name}</Text>
+            </>
+          )}
         </View>
-      </View>
-      <View style={styles.cardBody}>
-        <View style={styles.statItem}>
-          <Ionicons name="scale-outline" size={16} color="#6b5e53" />
-          <Text style={styles.kgsText}>{item.kgs_transacted.toFixed(2)} kg</Text>
-        </View>
-        <View style={styles.statItem}>
-          <Ionicons name="calendar-outline" size={16} color="#6b5e53" />
-          <Text style={styles.dateText}>{new Date(item.transaction_date).toLocaleDateString()}</Text>
-        </View>
-      </View>
-      <View style={styles.cardFooter}>
-        <Ionicons name="time-outline" size={14} color="#6b5e53" />
-        <Text style={styles.timeText}>{item.transaction_time}</Text>
-        {item.profiles?.full_name && (
-          <>
-            <Text style={styles.dot}>·</Text>
-            <Ionicons name="person-outline" size={14} color="#6b5e53" />
-            <Text style={styles.clerkText}>{item.profiles.full_name}</Text>
-          </>
-        )}
-      </View>
-    </TouchableOpacity>
-  )
+      </TouchableOpacity>
+    )
+  }
 
   return (
     <View style={styles.container}>

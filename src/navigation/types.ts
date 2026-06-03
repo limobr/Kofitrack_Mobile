@@ -3,6 +3,7 @@ export type RootStackParamList = {
   RecordDelivery: undefined
   RecordTransaction: undefined
   AddMember: undefined
+  EditMember: { memberId: string }
   CumulativeDetail: { memberId: string; memberName: string; memberReg: string }
   Account: undefined
   Login: undefined

@@ -16,7 +16,6 @@ import {
 import { Ionicons } from '@expo/vector-icons'
 import { useNavigation } from '@react-navigation/native'
 import api from '../api/client'
-import { supabase } from '../contexts/AuthContext'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { printDeliveryReceipt } from '../services/printService'
 
@@ -32,7 +31,7 @@ export default function RecordDeliveryScreen() {
   const [searching, setSearching] = useState(false)
 
   // Print‑related
-  const [printReceipt, setPrintReceipt] = useState(false)       // starts off until Bluetooth/printer ready
+  const [printReceipt, setPrintReceipt] = useState(false)
   const [printerConfigured, setPrinterConfigured] = useState(false)
   const [bluetoothOn, setBluetoothOn] = useState(true)
   const [factorySettings, setFactorySettings] = useState<any>(null)
@@ -59,82 +58,57 @@ export default function RecordDeliveryScreen() {
     }, 3000)
   }
 
-  // Determines if printing is actually available
   const canPrint = printerConfigured && bluetoothOn
 
-  // Enforce toggle off if cannot print
   useEffect(() => {
-    if (!canPrint) {
-      setPrintReceipt(false)
-    }
+    if (!canPrint) setPrintReceipt(false)
   }, [canPrint])
 
-  // ---- Load printer status, factory settings, clerk & season ----
+  // Load settings (printer, factory, clerk name, active season) from API
   useEffect(() => {
     (async () => {
       try {
-        // Printer config
+        // Printer config from AsyncStorage
         const raw = await AsyncStorage.getItem('selectedPrinter')
         if (raw) {
           const parsed = JSON.parse(raw)
           if (parsed.address) setPrinterConfigured(true)
         }
 
-        // Factory settings from API
+        // Factory settings (includes clerk name? we'll fetch profile separately)
         const { data: factoryData } = await api.get('/factory/settings')
         setFactorySettings(factoryData)
 
-        // Clerk name & active season from Supabase
-        const { data: { user } } = await supabase.auth.getUser()
-        if (user) {
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('full_name')
-            .eq('id', user.id)
-            .single()
-          if (profile) setClerkName(profile.full_name || '')
+        // Fetch current user's profile (full_name)
+        const { data: profileData } = await api.get('/profile')
+        if (profileData?.full_name) setClerkName(profileData.full_name)
 
-          const { data: factoryProfile } = await supabase
-            .from('profiles')
-            .select('factory_id')
-            .eq('id', user.id)
-            .single()
-          if (factoryProfile?.factory_id) {
-            const { data: season } = await supabase
-              .from('seasons')
-              .select('name')
-              .eq('factory_id', factoryProfile.factory_id)
-              .eq('is_active', true)
-              .maybeSingle()
-            if (season) setActiveSeasonName(season.name)
-          }
-        }
+        // Fetch active season name
+        const { data: seasonData } = await api.get('/seasons/active')
+        if (seasonData?.name) setActiveSeasonName(seasonData.name)
       } catch (e) {
-        // silent
+        console.error('Failed to load settings', e)
       } finally {
         setLoadingSettings(false)
       }
 
-      // Check Bluetooth state via BLE manager
-      let BleModule: any = null
-      try { BleModule = require('react-native-ble-plx') } catch (_) {}
-      if (BleModule) {
+      // Check Bluetooth state (optional – if you use BLE manager)
+      try {
+        const BleModule = require('react-native-ble-plx')
         const manager = new BleModule.BleManager()
-        manager.state().then((state: string) => {
-          setBluetoothOn(state === 'PoweredOn')
-        }).catch(() => {})
-      }
+        const state = await manager.state()
+        setBluetoothOn(state === 'PoweredOn')
+      } catch (_) {}
     })()
   }, [])
 
-  // ---- Cumulative helpers ----
   const fetchCumulative = async (memberId: string, coffeeType: string) => {
     try {
-      const { data: cumData } = await api.get(
+      const { data } = await api.get(
         `/cumulatives/member?member_id=${memberId}&type=${coffeeType}`
       )
-      setCumulative(cumData)
-      return cumData
+      setCumulative(data)
+      return data
     } catch (e: any) {
       showToast(e.response?.data?.error || 'Failed to load totals', 'error')
       return null
@@ -146,7 +120,10 @@ export default function RecordDeliveryScreen() {
   }, [type])
 
   const searchMember = async () => {
-    if (!regNo.trim()) { showToast('Enter a registration number', 'error'); return }
+    if (!regNo.trim()) {
+      showToast('Enter a registration number', 'error')
+      return
+    }
     setSearching(true)
     try {
       const { data } = await api.get(`/members/search?reg_no=${regNo}`)
@@ -165,7 +142,6 @@ export default function RecordDeliveryScreen() {
     }
   }
 
-  // ---- Save delivery & optionally print ----
   const saveDelivery = async () => {
     if (!member || !weight || parseFloat(weight) <= 0) {
       showToast('Enter a valid weight', 'error')
@@ -182,10 +158,8 @@ export default function RecordDeliveryScreen() {
       showToast(`Delivery recorded for ${member.name}`, 'success')
       setWeight('')
 
-      // Await fresh cumulative after delivery
       const updatedCumulative = await fetchCumulative(member.id, type)
 
-      // Print receipt if toggled, printer configured, and fresh data available
       if (printReceipt && printerConfigured && updatedCumulative) {
         try {
           const printerRaw = await AsyncStorage.getItem('selectedPrinter')
@@ -224,10 +198,8 @@ export default function RecordDeliveryScreen() {
     }
   }
 
-  // Handle toggling the print switch
   const handleTogglePrint = (value: boolean) => {
     if (value && !canPrint) {
-      // Bluetooth off or printer not configured – show alert
       Alert.alert(
         'Printer Not Ready',
         !bluetoothOn
@@ -243,13 +215,11 @@ export default function RecordDeliveryScreen() {
     setPrintReceipt(value)
   }
 
-  // ---- Render ----
   return (
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      {/* Toast */}
       {toast && (
         <Animated.View
           style={[
@@ -269,15 +239,10 @@ export default function RecordDeliveryScreen() {
       )}
 
       <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-        {/* Print receipt toggle */}
         <View style={styles.printerCard}>
           <View style={styles.toggleRow}>
             <View style={styles.toggleLabelGroup}>
-              <Ionicons
-                name="print-outline"
-                size={22}
-                color={printReceipt ? '#2e7d32' : '#6b5e53'}
-              />
+              <Ionicons name="print-outline" size={22} color={printReceipt ? '#2e7d32' : '#6b5e53'} />
               <Text style={styles.toggleLabel}>Print receipt</Text>
             </View>
             <Switch
@@ -297,7 +262,6 @@ export default function RecordDeliveryScreen() {
           )}
         </View>
 
-        {/* Coffee type toggle */}
         <Text style={styles.label}>Coffee Type</Text>
         <View style={styles.typeToggle}>
           <TouchableOpacity
@@ -316,7 +280,6 @@ export default function RecordDeliveryScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Member search */}
         <Text style={styles.label}>Member Registration Number</Text>
         <View style={styles.searchRow}>
           <TextInput
@@ -329,15 +292,10 @@ export default function RecordDeliveryScreen() {
             onSubmitEditing={searchMember}
           />
           <TouchableOpacity onPress={searchMember} style={styles.searchBtn} disabled={searching}>
-            {searching ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <Ionicons name="search" size={20} color="#fff" />
-            )}
+            {searching ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="search" size={20} color="#fff" />}
           </TouchableOpacity>
         </View>
 
-        {/* Member card */}
         {member && (
           <View style={styles.memberCard}>
             <View style={styles.memberHeader}>
@@ -350,27 +308,14 @@ export default function RecordDeliveryScreen() {
               </View>
             </View>
             <View style={styles.cumulativeGrid}>
-              <View style={styles.cumItem}>
-                <Text style={styles.cumLabel}>Delivered</Text>
-                <Text style={styles.cumValue}>{cumulative.delivered.toFixed(2)} kg</Text>
-              </View>
-              <View style={styles.cumItem}>
-                <Text style={styles.cumLabel}>Bought</Text>
-                <Text style={styles.cumValue}>{cumulative.bought.toFixed(2)} kg</Text>
-              </View>
-              <View style={styles.cumItem}>
-                <Text style={styles.cumLabel}>Sold</Text>
-                <Text style={styles.cumValue}>{cumulative.sold.toFixed(2)} kg</Text>
-              </View>
-              <View style={[styles.cumItem, styles.netItem]}>
-                <Text style={styles.cumLabel}>Net</Text>
-                <Text style={[styles.cumValue, styles.netValue]}>{cumulative.net.toFixed(2)} kg</Text>
-              </View>
+              <View style={styles.cumItem}><Text style={styles.cumLabel}>Delivered</Text><Text style={styles.cumValue}>{cumulative.delivered.toFixed(2)} kg</Text></View>
+              <View style={styles.cumItem}><Text style={styles.cumLabel}>Bought</Text><Text style={styles.cumValue}>{cumulative.bought.toFixed(2)} kg</Text></View>
+              <View style={styles.cumItem}><Text style={styles.cumLabel}>Sold</Text><Text style={styles.cumValue}>{cumulative.sold.toFixed(2)} kg</Text></View>
+              <View style={[styles.cumItem, styles.netItem]}><Text style={styles.cumLabel}>Net</Text><Text style={[styles.cumValue, styles.netValue]}>{cumulative.net.toFixed(2)} kg</Text></View>
             </View>
           </View>
         )}
 
-        {/* Weight input */}
         <Text style={styles.label}>Weight (kg)</Text>
         <TextInput
           placeholder="0.00"
@@ -382,17 +327,12 @@ export default function RecordDeliveryScreen() {
           editable={!!member}
         />
 
-        {/* Save button */}
         <TouchableOpacity
           onPress={saveDelivery}
           disabled={loading || !member}
           style={[styles.saveBtn, (loading || !member) && styles.saveBtnDisabled]}
         >
-          {loading ? (
-            <ActivityIndicator size="small" color="#fff" />
-          ) : (
-            <Text style={styles.saveBtnText}>Save Delivery</Text>
-          )}
+          {loading ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.saveBtnText}>Save Delivery</Text>}
         </TouchableOpacity>
       </ScrollView>
     </KeyboardAvoidingView>

@@ -1,76 +1,73 @@
-import React, { createContext, useState, useContext, useEffect } from 'react'
-import { createClient } from '@supabase/supabase-js'
-import AsyncStorage from '@react-native-async-storage/async-storage'   // for Supabase session
-import * as SecureStore from 'expo-secure-store'                     // for our JWT token
-import 'react-native-url-polyfill/auto'
+import React, { createContext, useState, useContext, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import api from '../api/client';
 
-const supabaseUrl = 'https://yoxcugdhrascovlbqqye.supabase.co'
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlveGN1Z2RocmFzY292bGJxcXllIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg2MjMwNTAsImV4cCI6MjA5NDE5OTA1MH0.h3R2Wse7498uoMjiXgd-HBiJYgLF-SQXdFdmiZIM8_c'   // ⬅️ replace with your actual anon key
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    storage: AsyncStorage,
-    autoRefreshToken: true,
-    persistSession: true,
-    detectSessionInUrl: false,
-  },
-})
-
-interface AuthContextType {
-  user: any
-  loading: boolean
-  signIn: (email: string, password: string) => Promise<void>
-  signOut: () => Promise<void>
+interface User {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  factoryId: string | null;
 }
 
-const AuthContext = createContext<AuthContextType>({
-  user: null,
-  loading: true,
-  signIn: async () => {},
-  signOut: async () => {},
-})
+interface AuthContextType {
+  user: User | null;
+  loading: boolean;
+  signIn: (email: string, password: string) => Promise<void>;
+  signOut: () => Promise<void>;
+}
 
-export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
-  const [user, setUser] = useState<any>(null)
-  const [loading, setLoading] = useState(true)
+const AuthContext = createContext<AuthContextType>({} as AuthContextType);
+
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      setUser(session?.user ?? null)
-      if (session?.access_token) {
-        await SecureStore.setItemAsync('supabase-token', session.access_token)
-      } else {
-        await SecureStore.deleteItemAsync('supabase-token')
-      }
-      setLoading(false)
-    })
+    loadStoredUser();
+  }, []);
 
-    // Retrieve existing token on mount
-    ;(async () => {
-      const token = await SecureStore.getItemAsync('supabase-token')
-      if (!token) {
-        setLoading(false)
-      }
-    })()
-
-    return () => listener.subscription.unsubscribe()
-  }, [])
+  const loadStoredUser = async () => {
+    try {
+      const storedUser = await AsyncStorage.getItem('sessionUser');
+      if (storedUser) setUser(JSON.parse(storedUser));
+    } catch (error) {
+      console.error('Failed to load user session', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) throw error
-  }
+    try {
+      const response = await api.post('/auth/callback/credentials', { email, password });
+      const { data } = response;
+      if (data.token) await AsyncStorage.setItem('authToken', data.token);
+      await AsyncStorage.setItem('sessionUser', JSON.stringify(data.user));
+      setUser(data.user);
+    } catch (error: any) {
+      console.error('Login error:', error.response?.data || error.message);
+      let message = 'Login failed. Please try again.';
+      if (error.response?.data?.error) {
+        message = error.response.data.error;
+      } else if (error.request) {
+        message = 'Cannot connect to server. Check your internet and API URL.';
+      }
+      throw new Error(message);
+    }
+  };
 
   const signOut = async () => {
-    await supabase.auth.signOut()
-    await SecureStore.deleteItemAsync('supabase-token')
-  }
+    await AsyncStorage.removeItem('authToken');
+    await AsyncStorage.removeItem('sessionUser');
+    setUser(null);
+  };
 
   return (
     <AuthContext.Provider value={{ user, loading, signIn, signOut }}>
       {children}
     </AuthContext.Provider>
-  )
-}
+  );
+};
 
-export const useAuth = () => useContext(AuthContext)
+export const useAuth = () => useContext(AuthContext);
