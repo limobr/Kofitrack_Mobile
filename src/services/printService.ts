@@ -18,6 +18,40 @@ export interface PrintConfig {
   clerk?: string
   receiptNo?: string | number
   netTotal?: number
+  isPending?: boolean
+  localUuid?: string
+}
+
+// ---------- Date/Time formatting helpers ----------
+function formatDate(isoDate: string): string {
+  try {
+    const date = new Date(isoDate)
+    if (isNaN(date.getTime())) return isoDate
+    return date.toLocaleDateString([], { year: 'numeric', month: 'numeric', day: 'numeric' })
+  } catch {
+    return isoDate
+  }
+}
+
+function formatTime(isoTime: string): string {
+  // The time may be a full ISO string or just a time string
+  try {
+    // If it contains 'T', treat as full ISO
+    if (isoTime.includes('T')) {
+      const date = new Date(isoTime)
+      if (!isNaN(date.getTime())) {
+        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      }
+    }
+    // Otherwise, try to parse as "HH:MM:SS.sss"
+    const match = isoTime.match(/(\d{2}):(\d{2}):(\d{2})/)
+    if (match) {
+      return `${match[1]}:${match[2]}:${match[3]}`
+    }
+    return isoTime
+  } catch {
+    return isoTime
+  }
 }
 
 // ---------- Shared helpers ----------
@@ -52,7 +86,7 @@ function buildReceiptBasics(
   lines.push(typeLabel)
 
   // Blank line after factory info group
-   
+  lines.push('')
 
   // Solid line
   lines.push('\x1B\x61\x00')
@@ -63,7 +97,7 @@ function buildReceiptBasics(
 
 function buildReceiptFooter(rc: any, lines: string[]) {
   // Blank line before thank you
-   
+  lines.push('')
 
   // Thank you – centred
   lines.push('\x1B\x61\x01')
@@ -71,6 +105,7 @@ function buildReceiptFooter(rc: any, lines: string[]) {
   lines.push('\x1B\x61\x00')
 
   // One line feed, then cut
+  lines.push('\n')
   lines.push('\x1D\x56\x42\x00')
 }
 
@@ -85,7 +120,6 @@ export async function printDeliveryReceipt(
   time: string,
   config?: PrintConfig,
 ): Promise<'thermal-ok' | 'ble-sent' | 'error'> {
-  // ---------- Safety net ----------
   const weightKg = typeof kgs === 'number' ? kgs : parseFloat(String(kgs))
   if (isNaN(weightKg) || weightKg <= 0 || weightKg > 10000) {
     Alert.alert('Invalid Data', 'Weight out of allowed range. Cannot print receipt.')
@@ -95,7 +129,6 @@ export async function printDeliveryReceipt(
   try {
     const finalConfig = config || { paperWidth: 58 }
     console.log('=== PRINT DELIVERY RECEIPT START ===')
-    console.log('Printer address:', finalConfig.printerAddress)
 
     const rc = finalConfig.receiptSettings || {}
     const fi = finalConfig.factoryInfo || {}
@@ -105,55 +138,73 @@ export async function printDeliveryReceipt(
     const dottedLine = '.'.repeat(charsPerLine)
     const delivery = rc.delivery || {}
 
-    const typeLabel = type === 'cherry' ? 'CHERRY DELIVERY RECEIPT' : 'MBUNI DELIVERY RECEIPT'
+    // Remove [OFFLINE] from title – we'll add a separate "OFFLINE" line later
+    let typeLabel = type === 'cherry' ? 'CHERRY DELIVERY RECEIPT' : 'MBUNI DELIVERY RECEIPT'
 
-    // Start with common header
+    const formattedDate = formatDate(date)
+    const formattedTime = formatTime(time)
+
     const lines = buildReceiptBasics(rc, fi, finalConfig, charsPerLine, solidLine, dottedLine, typeLabel)
+
+    // --- Insert "OFFLINE" line right after the header if offline ---
+    if (finalConfig.isPending) {
+      lines.push('OFFLINE')    // centered or plain – adjust as you like
+    }
 
     // Member info
     if (rc.showMemberName !== false) lines.push(`Member: ${memberName}`)
-    if (rc.showRegNo !== false) lines.push(`Reg No:  ${regNo}`)
+    if (rc.showRegNo !== false) lines.push(`Reg No:   ${regNo}`)
     if (rc.showPhone && fi.phone) lines.push(`Phone: ${fi.phone}`)
 
-    // Blank line after member info
-     
+    lines.push('')
 
     // Season
     if (rc.showSeason !== false && finalConfig.season) {
       lines.push(`Season: ${finalConfig.season}`)
-        // blank after season if shown
+      lines.push('')
     }
 
-    // Dotted line
     lines.push(dottedLine)
 
     // Weights
     if (delivery.showWeight !== false) {
-      lines.push(padLine(charsPerLine, 'Weight:  ', `${weightKg.toFixed(2)} kg`))
+      lines.push(padLine(charsPerLine, 'Weight:   ', `${weightKg.toFixed(2)} kg`))
     }
-    if (rc.showNetTotal !== false && finalConfig.netTotal != null) {
+    // Net total – keep "Unavailable offline" for offline
+    if (rc.showNetTotal !== false && finalConfig.netTotal != null && !finalConfig.isPending) {
       if (typeof finalConfig.netTotal === 'number' && finalConfig.netTotal < 0) {
         Alert.alert('Invalid Data', 'Net total cannot be negative. Contact support.')
         return 'error'
       }
-      lines.push(padLine(charsPerLine, 'Net Total: ', `${finalConfig.netTotal.toFixed(2)} kg`))
+      lines.push(padLine(charsPerLine, 'Net Total:', `${finalConfig.netTotal.toFixed(2)} kg`))
+    } else if (finalConfig.isPending) {
+      lines.push(padLine(charsPerLine, 'Net Total:', 'Unavailable offline'))
     }
 
-    // Blank line after weights
-     
-
-    // Dotted line
+    lines.push('')
     lines.push(dottedLine)
 
-    // Date, time, receipt number, clerk
-    if (rc.showDate !== false) lines.push(padLine(charsPerLine, 'Date:    ', date))
-    if (rc.showTime !== false) lines.push(padLine(charsPerLine, 'Time:    ', time))
-    if (rc.showReceiptNumber !== false && finalConfig.receiptNo) {
-      lines.push(padLine(charsPerLine, 'Receipt No: ', String(finalConfig.receiptNo)))
+    // Date, time – always shown
+    if (rc.showDate !== false) lines.push(padLine(charsPerLine, 'Date:     ', formattedDate))
+    if (rc.showTime !== false) lines.push(padLine(charsPerLine, 'Time:     ', formattedTime))
+
+    // Receipt number – skip entirely when offline
+    if (!finalConfig.isPending && rc.showReceiptNumber !== false) {
+      let receiptDisplay = ''
+      if (finalConfig.receiptNo) {
+        receiptDisplay = String(finalConfig.receiptNo)
+      } else {
+        receiptDisplay = '—'
+      }
+      lines.push(padLine(charsPerLine, 'Receipt No:', receiptDisplay))
     }
+
+    // Clerk – always show if available
     if (rc.showClerk !== false && finalConfig.clerk) {
-      lines.push(padLine(charsPerLine, 'Served by: ', finalConfig.clerk))
+      lines.push(padLine(charsPerLine, 'Served by:', finalConfig.clerk))
     }
+
+    // Offline notice lines removed – no extra text at bottom
 
     // Footer
     buildReceiptFooter(rc, lines)
@@ -167,8 +218,7 @@ export async function printDeliveryReceipt(
   }
 }
 
-// ---------- Print a transaction receipt ----------
-
+// ---------- Print a transaction receipt (similar formatting) ----------
 export async function printTransactionReceipt(
   sellerName: string,
   sellerRegNo: string,
@@ -180,17 +230,14 @@ export async function printTransactionReceipt(
   time: string,
   config?: PrintConfig,
 ): Promise<'thermal-ok' | 'ble-sent' | 'error'> {
-  // ---------- Safety net ----------
   const weightKg = typeof kgs === 'number' ? kgs : parseFloat(String(kgs))
   if (isNaN(weightKg) || weightKg <= 0 || weightKg > 10000) {
-    Alert.alert('Invalid Data', 'Weight out of allowed range. Cannot print receipt.')
-    return 'error'
+    throw new Error('Weight out of allowed range (0–10000 kg).')
   }
 
   try {
     const finalConfig = config || { paperWidth: 58 }
     console.log('=== PRINT TRANSACTION RECEIPT START ===')
-    console.log('Printer address:', finalConfig.printerAddress)
 
     const rc = finalConfig.receiptSettings || {}
     const fi = finalConfig.factoryInfo || {}
@@ -200,9 +247,14 @@ export async function printTransactionReceipt(
     const dottedLine = '.'.repeat(charsPerLine)
     const transaction = rc.transaction || {}
 
-    const typeLabel = type === 'cherry' ? 'CHERRY TRANSACTION RECEIPT' : 'MBUNI TRANSACTION RECEIPT'
+    let typeLabel = type === 'cherry' ? 'CHERRY TRANSACTION RECEIPT' : 'MBUNI TRANSACTION RECEIPT'
+    if (finalConfig.isPending) {
+      typeLabel = `[OFFLINE] ${typeLabel}`
+    }
 
-    // Start with common header
+    const formattedDate = formatDate(date)
+    const formattedTime = formatTime(time)
+
     const lines = buildReceiptBasics(rc, fi, finalConfig, charsPerLine, solidLine, dottedLine, typeLabel)
 
     // Seller info
@@ -217,58 +269,61 @@ export async function printTransactionReceipt(
       if (rc.showRegNo !== false) lines.push(`B.Reg No: ${buyerRegNo}`)
     }
 
-    // Blank line after seller/buyer info
-     
+    lines.push('')
 
     // Season
     if (rc.showSeason !== false && finalConfig.season) {
       lines.push(`Season: ${finalConfig.season}`)
-        // blank after season if shown
+      lines.push('')
     }
 
-    // Dotted line
     lines.push(dottedLine)
 
-    // Weight & Net Total
+    // Only show weight, no Net Total
     if (transaction.showWeight !== false) {
-      lines.push(padLine(charsPerLine, 'Weight:  ', `${weightKg.toFixed(2)} kg`))
-    }
-    if (rc.showNetTotal !== false && finalConfig.netTotal != null) {
-      if (typeof finalConfig.netTotal === 'number' && finalConfig.netTotal < 0) {
-        Alert.alert('Invalid Data', 'Net total cannot be negative. Contact support.')
-        return 'error'
-      }
-      lines.push(padLine(charsPerLine, 'Net Total: ', `${finalConfig.netTotal.toFixed(2)} kg`))
+      lines.push(padLine(charsPerLine, 'Weight:   ', `${weightKg.toFixed(2)} kg`))
     }
 
-    // Blank line after weights
-     
-
-    // Dotted line
+    lines.push('')
     lines.push(dottedLine)
 
     // Date, time, receipt number, clerk
-    if (rc.showDate !== false) lines.push(padLine(charsPerLine, 'Date:    ', date))
-    if (rc.showTime !== false) lines.push(padLine(charsPerLine, 'Time:    ', time))
-    if (rc.showReceiptNumber !== false && finalConfig.receiptNo) {
-      lines.push(padLine(charsPerLine, 'Receipt No: ', String(finalConfig.receiptNo)))
-    }
-    if (rc.showClerk !== false && finalConfig.clerk) {
-      lines.push(padLine(charsPerLine, 'Served by: ', finalConfig.clerk))
+    if (rc.showDate !== false) lines.push(padLine(charsPerLine, 'Date:     ', formattedDate))
+    if (rc.showTime !== false) lines.push(padLine(charsPerLine, 'Time:     ', formattedTime))
+
+    if (rc.showReceiptNumber !== false) {
+      let receiptDisplay = ''
+      if (finalConfig.isPending && finalConfig.localUuid) {
+        receiptDisplay = `PENDING-${finalConfig.localUuid.substring(0, 8)}`
+      } else if (finalConfig.receiptNo) {
+        receiptDisplay = String(finalConfig.receiptNo)
+      } else {
+        receiptDisplay = '—'
+      }
+      lines.push(padLine(charsPerLine, 'Receipt No:', receiptDisplay))
     }
 
-    // Footer
+    if (rc.showClerk !== false && finalConfig.clerk) {
+      lines.push(padLine(charsPerLine, 'Served by:', finalConfig.clerk))
+    }
+
+    if (finalConfig.isPending) {
+      lines.push('')
+      lines.push('*** This is an OFFLINE receipt ***')
+      lines.push('Will be replaced after sync.')
+    }
+
     buildReceiptFooter(rc, lines)
 
     const receipt = lines.join('\n')
     return await sendToPrinter(receipt, finalConfig.printerAddress)
   } catch (err: any) {
     console.error('Print service error:', err)
-    Alert.alert('Print Error', err.message)
-    return 'error'
+    throw err   // propagate to caller (which shows toast)
   }
 }
 
+// ---------- Print statement receipt (unchanged, but we add same date formatting if used) ----------
 export async function printStatementReceipt(
   memberName: string,
   regNo: string,
@@ -293,7 +348,7 @@ export async function printStatementReceipt(
     const solidLine = '-'.repeat(charsPerLine)
     const dottedLine = '.'.repeat(charsPerLine)
 
-    const padLine = (label: string, value: string) => {
+    const padLineLocal = (label: string, value: string) => {
       const combined = label + value
       if (combined.length >= charsPerLine) return combined
       const spaces = ' '.repeat(charsPerLine - combined.length)
@@ -337,16 +392,8 @@ export async function printStatementReceipt(
     const qtyWidth = 8
     const totalWidth = charsPerLine - dateWidth - qtyWidth
 
-    const formatRow = (
-      date: string,
-      qty: string,
-      total: string
-    ) => {
-      return (
-        date.padEnd(dateWidth) +
-        qty.padStart(qtyWidth) +
-        total.padStart(totalWidth)
-      )
+    const formatRow = (date: string, qty: string, total: string) => {
+      return date.padEnd(dateWidth) + qty.padStart(qtyWidth) + total.padStart(totalWidth)
     }
 
     // Table header
@@ -355,10 +402,9 @@ export async function printStatementReceipt(
 
     // Entries
     for (const entry of entries) {
-      const dateStr = entry.date.substring(0, 10) // avoid long dates
+      const dateStr = entry.date.substring(0, 10)
       const qty = entry.kgs.toFixed(2)
       const total = entry.runningTotal.toFixed(2)
-
       lines.push(formatRow(dateStr, qty, total))
     }
 
@@ -375,7 +421,6 @@ export async function printStatementReceipt(
     lines.push(`BOUGHT:    ${totals.bought.toFixed(2)} kgs`)
     lines.push(`SOLD:      ${totals.sold.toFixed(2)} kgs`)
     lines.push(`NET:       ${totals.net.toFixed(2)} kgs`)
-
 
     // Footer
     const now = new Date()
@@ -399,7 +444,7 @@ export async function printStatementReceipt(
   }
 }
 
-// ---------- Shared Bluetooth printing ----------
+// ---------- Shared Bluetooth printing (unchanged) ----------
 
 async function sendToPrinter(receipt: string, printerAddress?: string): Promise<'thermal-ok' | 'ble-sent' | 'error'> {
   // Classic Bluetooth SPP
@@ -411,12 +456,12 @@ async function sendToPrinter(receipt: string, printerAddress?: string): Promise<
       console.log('Bonded devices found:', devices.length)
     } catch (err: any) {
       console.warn('getBondedDevices failed:', err.message)
+      throw new Error('Could not list bonded devices. Please pair the printer in Bluetooth settings.')
     }
 
     const printer = devices.find((d: any) => d.address === printerAddress)
     if (!printer) {
-      Alert.alert('Printer Not Paired', 'Please pair the printer in Android Bluetooth settings first.')
-      return 'error'
+      throw new Error('Printer not paired. Please pair it in Android Bluetooth settings.')
     }
 
     console.log('Found printer:', printer.name, printer.type)
@@ -428,7 +473,6 @@ async function sendToPrinter(receipt: string, printerAddress?: string): Promise<
       await printer.write(receipt)
       await printer.disconnect()
       console.log('Print success via printer.write()')
-      Alert.alert('Print Success', 'Receipt printed successfully via Classic Bluetooth')
       return 'thermal-ok'
     } catch (err: any) {
       console.warn('Explicit connect/write failed:', err.message)
@@ -437,12 +481,10 @@ async function sendToPrinter(receipt: string, printerAddress?: string): Promise<
         await printer.write(receipt)
         await printer.disconnect()
         console.log('Print success via direct write')
-        Alert.alert('Print Success', 'Receipt printed via Classic Bluetooth')
         return 'thermal-ok'
       } catch (secondErr: any) {
         console.error('All write attempts failed:', secondErr.message)
-        Alert.alert('Print Error', 'Failed to send data to printer: ' + secondErr.message)
-        return 'error'
+        throw new Error('Failed to send data to printer: ' + secondErr.message)
       }
     }
   }
@@ -456,15 +498,14 @@ async function sendToPrinter(receipt: string, printerAddress?: string): Promise<
   if (ThermalModule?.printRaw && printerAddress) {
     try {
       await ThermalModule.printRaw(receipt, printerAddress)
-      Alert.alert('Print Success', 'Receipt printed via thermal library')
       return 'thermal-ok'
     } catch (err: any) {
       console.warn('Thermal library printRaw failed:', err.message)
+      throw new Error('Thermal print failed: ' + err.message)
     }
   }
 
-  Alert.alert('Printing Unavailable', 'No classic Bluetooth SPP library available.')
-  return 'error'
+  throw new Error('No compatible printing method available.')
 }
 
 export async function getPairedPrinters() {

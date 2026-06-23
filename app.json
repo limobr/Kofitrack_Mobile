@@ -37,7 +37,6 @@
     },
     "plugins": [
       "expo-secure-store",
-      "react-native-ble-plx",
       [
         "expo-splash-screen",
         {
@@ -45,7 +44,9 @@
           "image": "./assets/splash-icon.png",
           "imageWidth": 200
         }
-      ]
+      ],
+      "expo-sqlite",
+      "expo-font"
     ],
     "extra": {
       "eas": {

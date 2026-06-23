@@ -49,9 +49,11 @@ export default function LoginScreen() {
     }
     setLoading(true)
     try {
+      console.log('🔵 Calling signIn...');
       await signIn(email.trim(), password)
       // The useEffect above will handle role check
     } catch (e: any) {
+      console.log('🔵 Login error caught:', e);
       let message = e.message || 'Login failed. Please try again.'
       if (message.includes('email_verified')) {
         message = 'Please verify your email before logging in. Check your inbox.'

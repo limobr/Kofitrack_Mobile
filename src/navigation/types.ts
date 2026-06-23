@@ -7,4 +7,7 @@ export type RootStackParamList = {
   CumulativeDetail: { memberId: string; memberName: string; memberReg: string }
   Account: undefined
   Login: undefined
+  SyncLogs: undefined
+  PrinterSettings: undefined   // ✅ new
+  PinLock: undefined           // ✅ new
 }

@@ -11,14 +11,17 @@ import DashboardScreen from '../screens/DashboardScreen'
 import RecordDeliveryScreen from '../screens/RecordDeliveryScreen'
 import RecordTransactionScreen from '../screens/RecordTransactionScreen'
 import AddMemberScreen from '../screens/AddMemberScreen'
-import EditMemberScreen from '../screens/EditMemberScreen'   // ✅ new
+import EditMemberScreen from '../screens/EditMemberScreen'
 import MembersScreen from '../screens/MembersScreen'
-import DeliveriesScreen from '../screens/DeliveriesScreen'
-import TransactionsScreen from '../screens/TransactionsScreen'
+import DeliveriesTabHost from '../screens/DeliveriesTabHost'
 import CumulativesScreen from '../screens/CumulativesScreen'
 import CumulativeDetailScreen from '../screens/CumulativeDetailScreen'
 import AccountScreen from '../screens/AccountScreen'
 import Header from '../components/Header'
+import SyncLogsScreen from '../screens/SyncLogsScreen'
+import TransactionsTabHost from '../screens/TransactionsTabHost'
+import PrinterSettingsScreen from '../screens/PrinterSettingsScreen'
+import PinLockScreen from '../screens/PinLockScreen'
 
 const Stack = createNativeStackNavigator<RootStackParamList>()
 const Tab = createBottomTabNavigator()
@@ -36,11 +39,11 @@ function MainTabs() {
         ),
         tabBarIcon: ({ focused, color, size }) => {
           let iconName: any = 'ellipse'
-          if (route.name === 'Home') iconName = focused ? 'home' : 'home-outline'
-          else if (route.name === 'Deliveries') iconName = focused ? 'leaf' : 'leaf-outline'
-          else if (route.name === 'Transactions') iconName = focused ? 'swap-horizontal' : 'swap-horizontal-outline'
-          else if (route.name === 'Members') iconName = focused ? 'people' : 'people-outline'
-          else if (route.name === 'Cumulatives') iconName = focused ? 'bar-chart' : 'bar-chart-outline'
+          if (route.name === 'Home')         iconName = focused ? 'home'             : 'home-outline'
+          else if (route.name === 'Deliveries')  iconName = focused ? 'leaf'             : 'leaf-outline'
+          else if (route.name === 'Transactions') iconName = focused ? 'swap-horizontal'  : 'swap-horizontal-outline'
+          else if (route.name === 'Members')     iconName = focused ? 'people'           : 'people-outline'
+          else if (route.name === 'Cumulatives') iconName = focused ? 'bar-chart'        : 'bar-chart-outline'
           return <Ionicons name={iconName} size={size} color={color} />
         },
         tabBarActiveTintColor: '#8c6239',
@@ -51,23 +54,23 @@ function MainTabs() {
         },
       })}
     >
-      <Tab.Screen name="Home" component={DashboardScreen} />
-      <Tab.Screen name="Deliveries" component={DeliveriesScreen} />
-      <Tab.Screen name="Transactions" component={TransactionsScreen} />
-      <Tab.Screen name="Members" component={MembersScreen} />
-      <Tab.Screen name="Cumulatives" component={CumulativesScreen} />
+      <Tab.Screen name="Home"         component={DashboardScreen} />
+      <Tab.Screen name="Deliveries"   component={DeliveriesTabHost} />
+      <Tab.Screen name="Transactions" component={TransactionsTabHost} />
+      <Tab.Screen name="Members"      component={MembersScreen} />
+      <Tab.Screen name="Cumulatives"  component={CumulativesScreen} />
     </Tab.Navigator>
   )
 }
 
 function getHeaderTitle(name: string) {
   switch (name) {
-    case 'Home': return 'Dashboard'
-    case 'Deliveries': return 'Deliveries'
+    case 'Home':         return 'Dashboard'
+    case 'Deliveries':   return 'Deliveries'
     case 'Transactions': return 'Transactions'
-    case 'Members': return 'Members'
-    case 'Cumulatives': return 'Cumulatives'
-    default: return 'KofiTrack'
+    case 'Members':      return 'Members'
+    case 'Cumulatives':  return 'Cumulatives'
+    default:             return 'KofiTrack'
   }
 }
 
@@ -86,18 +89,12 @@ export default function AppNavigator() {
               <Stack.Screen
                 name="RecordDelivery"
                 component={RecordDeliveryScreen}
-                options={{
-                  headerShown: true,
-                  header: () => <Header title="Record Delivery" showBack={true} />,
-                }}
+                options={{ headerShown: false }}
               />
               <Stack.Screen
                 name="RecordTransaction"
                 component={RecordTransactionScreen}
-                options={{
-                  headerShown: true,
-                  header: () => <Header title="Record Transaction" showBack={true} />,
-                }}
+                options={{ headerShown: false }}
               />
               <Stack.Screen
                 name="AddMember"
@@ -130,6 +127,24 @@ export default function AppNavigator() {
                   headerShown: true,
                   header: () => <Header title="Account" showBack={true} />,
                 }}
+              />
+              <Stack.Screen
+                name="PrinterSettings"
+                component={PrinterSettingsScreen}
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="PinLock"
+                component={PinLockScreen}
+                options={{
+                  headerShown: true,
+                  header: () => <Header title="PIN Lock" showBack={true} />,
+                }}
+              />
+              <Stack.Screen
+                name="SyncLogs"
+                component={SyncLogsScreen}
+                options={{ headerShown: false }}
               />
             </>
           ) : (
