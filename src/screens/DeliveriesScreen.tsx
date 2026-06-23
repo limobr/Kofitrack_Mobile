@@ -23,6 +23,10 @@ import {
 import eventEmitter from '../services/eventEmitter';
 import { useSyncStatus } from '../hooks/useSyncStatus';
 import PendingDeliveriesModal from '../components/PendingDeliveriesModal';
+import {
+  refreshFactorySettings,
+  getFactorySettings,
+} from '../services/factorySettingsCache';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -382,8 +386,16 @@ export default function DeliveriesScreen({ type }: DeliveriesScreenProps) {
         }
         const pw = await AsyncStorage.getItem('paperWidth');
         if (pw) setPaperWidth(Number(pw) as 58 | 80);
-        const { data } = await api.get('/factory/settings');
-        setFactorySettings(data);
+
+        // Use the shared cache: try a live refresh first, fall back to
+        // the cached/disk copy so the header is never "KOFITRACK FACTORY"
+        // just because the device is currently offline.
+        const settings = await refreshFactorySettings();
+        if (settings) setFactorySettings(settings);
+        else {
+          const cached = await getFactorySettings();
+          if (cached) setFactorySettings(cached);
+        }
       } catch {}
     };
     loadSettings();

@@ -1,4 +1,5 @@
 import { Alert } from 'react-native'
+import { getCachedFactorySettings } from './factorySettingsCache'
 
 let BluetoothClassic: any = null
 try {
@@ -72,7 +73,8 @@ function buildReceiptBasics(
   dottedLine: string,
   typeLabel: string,
 ) {
-  const factoryName = finalConfig.factoryName || 'KOFITRACK FACTORY'
+  const _cachedSettings = getCachedFactorySettings()
+  const factoryName = finalConfig.factoryName || _cachedSettings?.name || 'KOFITRACK FACTORY'
   const lines: string[] = []
 
   // Factory info – centre aligned
@@ -130,8 +132,9 @@ export async function printDeliveryReceipt(
     const finalConfig = config || { paperWidth: 58 }
     console.log('=== PRINT DELIVERY RECEIPT START ===')
 
-    const rc = finalConfig.receiptSettings || {}
-    const fi = finalConfig.factoryInfo || {}
+    const _cs = getCachedFactorySettings()
+    const rc = finalConfig.receiptSettings || _cs?.settings?.receipt || {}
+    const fi = finalConfig.factoryInfo || _cs?.settings?.factoryInfo || {}
     const paperWidth = finalConfig.paperWidth || rc.paperWidth || 58
     const charsPerLine = paperWidth === 80 ? 48 : 32
     const solidLine = '-'.repeat(charsPerLine)
@@ -239,8 +242,9 @@ export async function printTransactionReceipt(
     const finalConfig = config || { paperWidth: 58 }
     console.log('=== PRINT TRANSACTION RECEIPT START ===')
 
-    const rc = finalConfig.receiptSettings || {}
-    const fi = finalConfig.factoryInfo || {}
+    const _cs = getCachedFactorySettings()
+    const rc = finalConfig.receiptSettings || _cs?.settings?.receipt || {}
+    const fi = finalConfig.factoryInfo || _cs?.settings?.factoryInfo || {}
     const paperWidth = finalConfig.paperWidth || rc.paperWidth || 58
     const charsPerLine = paperWidth === 80 ? 48 : 32
     const solidLine = '-'.repeat(charsPerLine)
@@ -340,9 +344,11 @@ export async function printStatementReceipt(
     const finalConfig = config || { paperWidth: 58 }
     console.log('=== PRINT STATEMENT RECEIPT START ===')
 
-    const rc = finalConfig.receiptSettings || {}
-    const fi = finalConfig.factoryInfo || {}
-    const factoryName = finalConfig.factoryName || 'KOFITRACK FACTORY'
+    const _cs = getCachedFactorySettings()
+    const rc = finalConfig.receiptSettings || _cs?.settings?.receipt || {}
+    const fi = finalConfig.factoryInfo || _cs?.settings?.factoryInfo || {}
+    const _cachedSettings = getCachedFactorySettings()
+  const factoryName = finalConfig.factoryName || _cachedSettings?.name || 'KOFITRACK FACTORY'
     const paperWidth = finalConfig.paperWidth || rc.paperWidth || 58
     const charsPerLine = paperWidth === 80 ? 48 : 32
     const solidLine = '-'.repeat(charsPerLine)

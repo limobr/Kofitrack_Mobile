@@ -18,6 +18,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { printTransactionReceipt } from '../services/printService';
 import { useAuth } from '../contexts/AuthContext';
 import Header from '../components/Header';
+import {
+  refreshFactorySettings,
+  getFactorySettings,
+} from '../services/factorySettingsCache';
 
 // ---------- Custom numeric keyboard ----------
 interface NumericKeyboardProps {
@@ -173,8 +177,14 @@ export default function RecordTransactionScreen() {
           if (parsed.address) setPrinterConfigured(true);
         }
 
-        const { data: factoryData } = await api.get('/factory/settings');
-        setFactorySettings(factoryData);
+        // Refresh from network; fall back to cached/disk copy when offline
+        const factoryData = await refreshFactorySettings();
+        if (factoryData) {
+          setFactorySettings(factoryData);
+        } else {
+          const cached = await getFactorySettings();
+          if (cached) setFactorySettings(cached);
+        }
 
         const { data: profileData } = await api.get('/profile');
         if (profileData?.full_name) setClerkName(profileData.full_name);

@@ -21,6 +21,10 @@ import { syncPendingDeliveries } from '../services/syncService';
 import { useAuth } from '../contexts/AuthContext';
 import { useSyncStatus } from '../hooks/useSyncStatus';
 import Header from '../components/Header';
+import {
+  refreshFactorySettings,
+  getFactorySettings,
+} from '../services/factorySettingsCache';
 
 // ---------- Custom numeric keyboard ----------
 interface NumericKeyboardProps {
@@ -174,8 +178,15 @@ export default function RecordDeliveryScreen() {
           if (parsed.address) setPrinterConfigured(true);
         }
 
-        const { data: factoryData } = await api.get('/factory/settings');
-        setFactorySettings(factoryData);
+        // Refresh from network; fall back to cached/disk copy when offline
+        // so the receipt header always shows the real factory name.
+        const factoryData = await refreshFactorySettings();
+        if (factoryData) {
+          setFactorySettings(factoryData);
+        } else {
+          const cached = await getFactorySettings();
+          if (cached) setFactorySettings(cached);
+        }
 
         const { data: profileData } = await api.get('/profile');
         if (profileData?.full_name) setClerkName(profileData.full_name);

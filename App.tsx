@@ -7,6 +7,10 @@ import { startSyncListener, syncPendingDeliveries } from './src/services/syncSer
 import { syncMembers } from './src/services/memberSyncService'
 import AppLockScreen from './src/screens/AppLockScreen'
 import { isPinEnabled } from './src/utils/pinLock'
+import {
+  loadFactorySettingsFromDisk,
+  refreshFactorySettings,
+} from './src/services/factorySettingsCache'
 
 // The main content of your app (wrapped by AuthProvider)
 function AppContent() {
@@ -15,6 +19,9 @@ function AppContent() {
   useEffect(() => {
     initDatabase()
     startSyncListener()
+    // Warm the factory-settings cache from disk on every app start so
+    // receipt printing works immediately, even before any screen fetches.
+    loadFactorySettingsFromDisk()
   }, [])
 
   useEffect(() => {
@@ -22,6 +29,8 @@ function AppContent() {
       // Sync pending deliveries and member cache when user logs in
       syncPendingDeliveries()
       syncMembers(user.factoryId)
+      // Also refresh factory settings now that we have a valid token
+      refreshFactorySettings()
     }
   }, [user])
 
