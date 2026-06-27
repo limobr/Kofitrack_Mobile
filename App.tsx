@@ -2,6 +2,10 @@ import { StatusBar } from 'expo-status-bar'
 import React, { useState, useEffect } from 'react'
 import { AuthProvider, useAuth } from './src/contexts/AuthContext'
 import { NotificationProvider } from './src/contexts/NotificationContext'
+import { UpdateProvider } from './src/contexts/UpdateContext'
+import UpdateModal from './src/components/UpdateModal'
+import UpdateProgressModal from './src/components/UpdateProgressModal'
+import UpdateStatusModal from './src/components/UpdateStatusModal'
 import AppNavigator from './src/navigation/AppNavigator'
 import { initDatabase } from './src/db'
 import { startSyncListener, syncPendingDeliveries } from './src/services/syncService'
@@ -38,7 +42,16 @@ function AppContent() {
     // enabled=!!user gates all notification network calls: no requests
     // fire until the user is signed in, and state resets on sign-out.
     <NotificationProvider enabled={!!user}>
-      <AppNavigator />
+      {/* UpdateProvider stays mounted regardless of login -- the update
+          check (and the GitHub-hosted APK download) has to work before
+          sign-in too, unlike notifications. `loggedIn` only feeds the
+          extra "check right after login" trigger inside the provider. */}
+      <UpdateProvider loggedIn={!!user}>
+        <AppNavigator />
+        <UpdateModal />
+        <UpdateProgressModal />
+        <UpdateStatusModal />
+      </UpdateProvider>
     </NotificationProvider>
   )
 }

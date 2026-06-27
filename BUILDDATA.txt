@@ -1,0 +1,101 @@
+PS C:\Users\Limo\Desktop\KofiTrack Project\Kofitrack_Mobile> eas credentials --platform android
+★ eas-cli@20.4.0 is now available.
+To upgrade, run:
+npm install -g eas-cli
+Proceeding with outdated version.
+
+√ Which build profile do you want to configure? » github-release
+√ Using build profile: github-release
+Android Credentials
+Project                 kofitrack
+Application Identifier  com.kofitrack.clerk
+
+Push Notifications (FCM Legacy)
+  None assigned yet
+
+Push Notifications (FCM V1): Google Service Account Key For FCM V1
+  None assigned yet
+
+Submissions: Google Service Account Key for Play Store Submissions
+  None assigned yet
+
+Configuration: Build Credentials 9A7LB-L3hw (Default)
+Keystore
+Type                JKS
+Key Alias           464118a6a82ec9f451697f69132e5e79
+MD5 Fingerprint     A8:92:7D:18:B4:BF:54:D8:6F:D8:FA:98:31:FC:A8:7D
+SHA1 Fingerprint    37:9B:86:94:0B:96:60:52:69:F8:35:8A:47:22:DF:EE:BA:08:88:9B
+SHA256 Fingerprint  7E:97:8C:B9:CC:24:DD:CF:E2:4E:99:CA:50:4C:D5:28:66:66:4A:D8:14:93:01:3B:C8:71:14:2F:5A:3D:82:D3
+Updated             1 month ago
+
+√ What do you want to do? » Keystore: Manage everything needed to build your project
+Android Credentials
+Project                 kofitrack
+Application Identifier  com.kofitrack.clerk
+
+Push Notifications (FCM Legacy)
+  None assigned yet
+
+Push Notifications (FCM V1): Google Service Account Key For FCM V1
+  None assigned yet
+
+Submissions: Google Service Account Key for Play Store Submissions
+  None assigned yet
+
+Configuration: Build Credentials 9A7LB-L3hw (Default)
+Keystore
+Type                JKS
+Key Alias           464118a6a82ec9f451697f69132e5e79
+MD5 Fingerprint     A8:92:7D:18:B4:BF:54:D8:6F:D8:FA:98:31:FC:A8:7D
+SHA1 Fingerprint    37:9B:86:94:0B:96:60:52:69:F8:35:8A:47:22:DF:EE:BA:08:88:9B
+SHA256 Fingerprint  7E:97:8C:B9:CC:24:DD:CF:E2:4E:99:CA:50:4C:D5:28:66:66:4A:D8:14:93:01:3B:C8:71:14:2F:5A:3D:82:D3
+Updated             1 month ago
+
+√ What do you want to do? » Set up a new keystore
+√ Assign a name to your build credentials: ... Build Credentials 5X43_-J_kE
+√ Do you want to set this as your default build credentials? ... yes
+√ Generate a new Android Keystore? ... yes
+Detected that you do not have keytool installed locally.
+√ Generating keystore in the cloud...
+√ Created keystore
+√ Created Android build credentials Build Credentials 5X43_-J_kE
+Press any key to continue...
+
+
+Android Credentials
+Project                 kofitrack
+Application Identifier  com.kofitrack.clerk
+
+Push Notifications (FCM Legacy)
+  None assigned yet
+
+Push Notifications (FCM V1): Google Service Account Key For FCM V1
+  None assigned yet
+
+Submissions: Google Service Account Key for Play Store Submissions
+  None assigned yet
+
+Configuration: Build Credentials 5X43_-J_kE (Default)
+Keystore
+Type                JKS
+Key Alias           6901fd61ed706bcdc711728d3c62409e
+MD5 Fingerprint     0E:CC:40:B8:57:49:B4:A9:6D:4A:29:ED:EA:15:05:1C
+SHA1 Fingerprint    34:07:25:8A:89:D8:84:54:D7:49:6A:53:19:4D:0C:71:5D:42:24:08
+SHA256 Fingerprint  13:98:C7:21:2F:C3:BC:DC:26:78:EB:7F:D8:96:B8:0C:31:A3:57:63:75:C1:EA:FD:E7:FE:39:E6:99:6B:DB:21
+Updated             7 seconds ago
+
+Configuration: Build Credentials 9A7LB-L3hw
+Keystore
+Type                JKS
+Key Alias           464118a6a82ec9f451697f69132e5e79
+MD5 Fingerprint     A8:92:7D:18:B4:BF:54:D8:6F:D8:FA:98:31:FC:A8:7D
+SHA1 Fingerprint    37:9B:86:94:0B:96:60:52:69:F8:35:8A:47:22:DF:EE:BA:08:88:9B
+SHA256 Fingerprint  7E:97:8C:B9:CC:24:DD:CF:E2:4E:99:CA:50:4C:D5:28:66:66:4A:D8:14:93:01:3B:C8:71:14:2F:5A:3D:82:D3
+Updated             1 month ago
+
+? What do you want to do? » - Use arrow-keys. Return to submit.
+>   Set up a new keystore
+    Change default keystore
+    Download existing keystore
+    Delete your keystore
+    Go back

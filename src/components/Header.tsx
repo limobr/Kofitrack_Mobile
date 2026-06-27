@@ -10,6 +10,7 @@ import { useNavigation } from '@react-navigation/native'
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import type { RootStackParamList } from '../navigation/types'
 import { useAuth } from '../contexts/AuthContext'
+import { useUpdate } from '../contexts/UpdateContext'
 import { useNotifications } from '../hooks/useNotifications'
 import NotificationsPanel from './NotificationsPanel'
 import PrintQueueModal from './PrintQueueModal'
@@ -57,6 +58,7 @@ export default function Header({
   const insets = useSafeAreaInsets()
   const navigation = useNavigation<NavigationProp>()
   const { user } = useAuth()
+  const { updateInfo } = useUpdate()
 
   const notifications = useNotifications(!!user)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
@@ -64,6 +66,12 @@ export default function Header({
   const [printJobCount, setPrintJobCount] = useState(0)
   const [factoryName, setFactoryName] = useState('')
   const [needsAttention, setNeedsAttention] = useState(false)
+
+  // The dot is "print/Bluetooth needs attention" OR "an update is waiting".
+  // Kept as two separate signals (rather than folding updateInfo into
+  // checkAttention's own state) since they have nothing to do with each
+  // other and are owned by different parts of the app.
+  const attentionActive = needsAttention || !!updateInfo
 
   // Load factory name from cache (same source as Dashboard)
   useEffect(() => {
@@ -149,12 +157,12 @@ export default function Header({
           onPress={() => navigation.navigate('Account')}
           style={styles.avatarWrap}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          accessibilityLabel={needsAttention ? 'Open settings — attention required' : 'Open settings'}
+          accessibilityLabel={attentionActive ? 'Open settings — attention required' : 'Open settings'}
         >
           <View style={styles.avatar}>
             <Text style={styles.avatarText}>{initials}</Text>
           </View>
-          {needsAttention && <View style={styles.attentionDot} />}
+          {attentionActive && <View style={styles.attentionDot} />}
         </TouchableOpacity>
       </View>
     )

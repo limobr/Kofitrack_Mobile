@@ -12,6 +12,7 @@ import { useNavigation } from '@react-navigation/native'
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import type { RootStackParamList } from '../navigation/types'
 import { useAuth } from '../contexts/AuthContext'
+import { useUpdate } from '../contexts/UpdateContext'
 import { getFactorySettings } from '../services/factorySettingsCache'
 import { getPrintJobs, subscribeToPrintQueue } from '../services/printQueue'
 import AsyncStorage from '@react-native-async-storage/async-storage'
@@ -92,6 +93,7 @@ function MenuRow({
 export default function AccountScreen() {
   const navigation = useNavigation<Nav>()
   const { user, signOut } = useAuth()
+  const { installedVersionLabel, checking, checkNow } = useUpdate()
 
   const [printerName, setPrinterName]     = useState<string | null>(null)
   const [printerLoading, setPrinterLoading] = useState(true)
@@ -210,6 +212,19 @@ export default function AccountScreen() {
           label="Sync Logs"
           onPress={() => navigation.navigate('SyncLogs')}
           isFirst={false}
+          isLast
+        />
+      </View>
+
+      {/* ── About ────────────────────────────────────────────────────────── */}
+      <GroupLabel label="About" />
+      <View style={styles.card}>
+        <MenuRow
+          label="Check for Updates"
+          value={checking ? undefined : `v${installedVersionLabel}`}
+          loading={checking}
+          onPress={() => checkNow({ manual: true })}
+          isFirst
           isLast
         />
       </View>
