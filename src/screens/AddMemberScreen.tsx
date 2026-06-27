@@ -13,8 +13,12 @@ import {
 } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import api from '../api/client'
+import eventEmitter from '../services/eventEmitter'
+import { useAuth } from '../contexts/AuthContext'
+import { syncMembers } from '../services/memberSyncService'
 
 export default function AddMemberScreen() {
+  const { user } = useAuth()
   const [form, setForm] = useState({
     name: '',
     phone: '',
@@ -65,6 +69,15 @@ export default function AddMemberScreen() {
         national_id: '',
         email: '',
       })
+
+      // Let any open Members list (and other listeners) know to refresh.
+      eventEmitter.emit('memberRecorded', data.member)
+
+      // Refresh the local cache in the background so the list is correct
+      // even if it paints from cache before the network refetch completes.
+      if (user?.factoryId) {
+        syncMembers(user.factoryId).catch(() => {})
+      }
     } catch (e: any) {
       showToast(e.response?.data?.error || 'Failed to add member', 'error')
     } finally {

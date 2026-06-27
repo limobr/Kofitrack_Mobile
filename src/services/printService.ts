@@ -1,13 +1,5 @@
-import { Alert } from 'react-native'
 import { getCachedFactorySettings } from './factorySettingsCache'
-
-let BluetoothClassic: any = null
-try {
-  const mod = require('react-native-bluetooth-classic')
-  BluetoothClassic = mod.default || mod
-} catch (e) {
-  console.warn('react-native-bluetooth-classic not available')
-}
+import BluetoothClassic from './bluetoothClassic'
 
 export interface PrintConfig {
   printerAddress?: string
@@ -124,13 +116,12 @@ export async function printDeliveryReceipt(
 ): Promise<'thermal-ok' | 'ble-sent' | 'error'> {
   const weightKg = typeof kgs === 'number' ? kgs : parseFloat(String(kgs))
   if (isNaN(weightKg) || weightKg <= 0 || weightKg > 10000) {
-    Alert.alert('Invalid Data', 'Weight out of allowed range. Cannot print receipt.')
-    return 'error'
+    console.error('Print service error: weight out of allowed range', weightKg)
+    throw new Error('Weight out of allowed range. Cannot print receipt.')
   }
 
   try {
     const finalConfig = config || { paperWidth: 58 }
-    console.log('=== PRINT DELIVERY RECEIPT START ===')
 
     const _cs = getCachedFactorySettings()
     const rc = finalConfig.receiptSettings || _cs?.settings?.receipt || {}
@@ -176,8 +167,8 @@ export async function printDeliveryReceipt(
     // Net total – keep "Unavailable offline" for offline
     if (rc.showNetTotal !== false && finalConfig.netTotal != null && !finalConfig.isPending) {
       if (typeof finalConfig.netTotal === 'number' && finalConfig.netTotal < 0) {
-        Alert.alert('Invalid Data', 'Net total cannot be negative. Contact support.')
-        return 'error'
+        console.error('Print service error: net total negative', finalConfig.netTotal)
+        throw new Error('Net total cannot be negative. Contact support.')
       }
       lines.push(padLine(charsPerLine, 'Net Total:', `${finalConfig.netTotal.toFixed(2)} kg`))
     } else if (finalConfig.isPending) {
@@ -215,9 +206,11 @@ export async function printDeliveryReceipt(
     const receipt = lines.join('\n')
     return await sendToPrinter(receipt, finalConfig.printerAddress)
   } catch (err: any) {
-    console.error('Print service error:', err)
-    Alert.alert('Print Error', err.message)
-    return 'error'
+    // Only log unexpected errors — known states (BLUETOOTH_OFF, PRINTER_UNREACHABLE) are silent
+    if (err?.message && !err.message.startsWith('BLUETOOTH_OFF') && !err.message.startsWith('PRINTER_UNREACHABLE')) {
+      console.warn('[printService] delivery error:', err.message)
+    }
+    throw err
   }
 }
 
@@ -240,7 +233,6 @@ export async function printTransactionReceipt(
 
   try {
     const finalConfig = config || { paperWidth: 58 }
-    console.log('=== PRINT TRANSACTION RECEIPT START ===')
 
     const _cs = getCachedFactorySettings()
     const rc = finalConfig.receiptSettings || _cs?.settings?.receipt || {}
@@ -322,8 +314,11 @@ export async function printTransactionReceipt(
     const receipt = lines.join('\n')
     return await sendToPrinter(receipt, finalConfig.printerAddress)
   } catch (err: any) {
-    console.error('Print service error:', err)
-    throw err   // propagate to caller (which shows toast)
+    // Only log unexpected errors — known states (BLUETOOTH_OFF, PRINTER_UNREACHABLE) are silent
+    if (err?.message && !err.message.startsWith('BLUETOOTH_OFF') && !err.message.startsWith('PRINTER_UNREACHABLE')) {
+      console.warn('[printService] transaction error:', err.message)
+    }
+    throw err
   }
 }
 
@@ -342,7 +337,6 @@ export async function printStatementReceipt(
 ): Promise<'thermal-ok' | 'ble-sent' | 'error'> {
   try {
     const finalConfig = config || { paperWidth: 58 }
-    console.log('=== PRINT STATEMENT RECEIPT START ===')
 
     const _cs = getCachedFactorySettings()
     const rc = finalConfig.receiptSettings || _cs?.settings?.receipt || {}
@@ -444,24 +438,43 @@ export async function printStatementReceipt(
     const receipt = lines.join('\n')
     return await sendToPrinter(receipt, finalConfig.printerAddress)
   } catch (err: any) {
-    console.error('Print statement error:', err)
-    Alert.alert('Print Error', err.message)
-    return 'error'
+    // Only log unexpected errors — known states (BLUETOOTH_OFF, PRINTER_UNREACHABLE) are silent
+    if (err?.message && !err.message.startsWith('BLUETOOTH_OFF') && !err.message.startsWith('PRINTER_UNREACHABLE')) {
+      console.warn('[printService] statement error:', err.message)
+    }
+    throw err
   }
 }
 
 // ---------- Shared Bluetooth printing (unchanged) ----------
 
+// Error message prefixes that should not produce console noise.
+// These are routine states the UI already handles via toasts/dots.
+const SILENT_PREFIXES = ['BLUETOOTH_OFF', 'PRINTER_UNREACHABLE']
+
+function isSilentError(msg: string): boolean {
+  return SILENT_PREFIXES.some((p) => msg.startsWith(p))
+}
+
 async function sendToPrinter(receipt: string, printerAddress?: string): Promise<'thermal-ok' | 'ble-sent' | 'error'> {
-  // Classic Bluetooth SPP
   if (BluetoothClassic && printerAddress) {
-    console.log('Trying Classic Bluetooth SPP...')
     let devices: any[] = []
     try {
       devices = await BluetoothClassic.getBondedDevices()
-      console.log('Bonded devices found:', devices.length)
     } catch (err: any) {
-      console.warn('getBondedDevices failed:', err.message)
+      const msg: string = err?.message || ''
+      const lower = msg.toLowerCase()
+      // Bluetooth adapter off — expected when user hasn't enabled BT
+      if (
+        lower.includes('madapter is not enabled') ||
+        lower.includes('bluetooth is not enabled') ||
+        lower.includes('adapter not enabled') ||
+        lower.includes('bluetooth adapter')
+      ) {
+        throw new Error('BLUETOOTH_OFF')
+      }
+      // Unexpected — worth a single warn
+      console.warn('[printService] getBondedDevices error:', msg)
       throw new Error('Could not list bonded devices. Please pair the printer in Bluetooth settings.')
     }
 
@@ -470,27 +483,28 @@ async function sendToPrinter(receipt: string, printerAddress?: string): Promise<
       throw new Error('Printer not paired. Please pair it in Android Bluetooth settings.')
     }
 
-    console.log('Found printer:', printer.name, printer.type)
-
     try {
-      console.log('Connecting...')
       await printer.connect()
-      console.log('Connected. Writing...')
       await printer.write(receipt)
       await printer.disconnect()
-      console.log('Print success via printer.write()')
       return 'thermal-ok'
     } catch (err: any) {
-      console.warn('Explicit connect/write failed:', err.message)
+      // Try direct write without explicit connect (some SPP devices prefer this)
       try {
-        console.log('Trying direct write without connect...')
         await printer.write(receipt)
         await printer.disconnect()
-        console.log('Print success via direct write')
         return 'thermal-ok'
       } catch (secondErr: any) {
-        console.error('All write attempts failed:', secondErr.message)
-        throw new Error('Failed to send data to printer: ' + secondErr.message)
+        const msg2: string = secondErr?.message || ''
+        if (
+          msg2.includes('socket might closed') ||
+          msg2.includes('timeout') ||
+          msg2.includes('Not connected') ||
+          msg2.includes('read ret: -1')
+        ) {
+          throw new Error('PRINTER_UNREACHABLE:' + (printer.name || printerAddress))
+        }
+        throw new Error('Failed to send data to printer: ' + msg2)
       }
     }
   }
@@ -506,8 +520,7 @@ async function sendToPrinter(receipt: string, printerAddress?: string): Promise<
       await ThermalModule.printRaw(receipt, printerAddress)
       return 'thermal-ok'
     } catch (err: any) {
-      console.warn('Thermal library printRaw failed:', err.message)
-      throw new Error('Thermal print failed: ' + err.message)
+      throw new Error('Thermal print failed: ' + (err?.message || ''))
     }
   }
 

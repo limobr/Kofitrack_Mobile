@@ -9,7 +9,7 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import NetInfo from '@react-native-community/netinfo';
 import api from '../api/client';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { printTransactionReceipt } from '../services/printService';
+import { enqueuePrintJob } from '../services/printQueue';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -395,16 +395,29 @@ export default function TransactionsScreen({ type }: TransactionsScreenProps) {
     let cancelled = false;
     console.log(`🚀 [${type}] mount init — starting`);
     const init = async () => {
-      setLoading(true);
+      // 1. Instant paint from cache, if we have one — regardless of
+      // online/offline state. This avoids showing a blank spinner on every
+      // cold open while online when we already have something to show.
+      const cached = await loadCache(type);
+      console.log(`🚀 [${type}] mount init — cache items=${cached?.length ?? 0}`);
+      if (cached && cached.length) {
+        if (!cancelled) {
+          setServerTransactions(cached);
+          setLoading(false);
+        }
+      } else {
+        if (!cancelled) setLoading(true);
+      }
+
+      // 2. Background refresh from server (replaces cache silently on success)
       const net = await NetInfo.fetch();
       console.log(`🚀 [${type}] mount init — isConnected=${net.isConnected}`);
       if (cancelled) return;
       if (net.isConnected) {
         await fetchServerTransactions(true, 'mountInit');
-      } else {
-        const cached = await loadCache(type);
-        console.log(`🚀 [${type}] mount init — offline, cache items=${cached?.length ?? 0}`);
-        if (!cancelled) setServerTransactions(cached || []);
+      } else if (!cached) {
+        console.log(`🚀 [${type}] mount init — offline, no cache`);
+        setHasMore(false);
       }
       if (!cancelled) {
         setLoading(false);
@@ -451,7 +464,12 @@ export default function TransactionsScreen({ type }: TransactionsScreenProps) {
 
   // Load more
   const loadMore = async () => {
-    if (loadingMore || !hasMore || isFetching.current) return;
+    // Guard against onEndReached firing while mount-init's cache paint is
+    // showing but the background refresh (which sets the real offset)
+    // hasn't completed yet — otherwise this fires at offset=0 and appends
+    // a duplicate first page on top of the cached items, causing duplicate
+    // keys in the SectionList.
+    if (!initDoneRef.current || loadingMore || !hasMore || isFetching.current) return;
     const net = await NetInfo.fetch();
     if (!net.isConnected) return;
     console.log(`📄 [${type}] loadMore — offset=${offsetRef.current}`);
@@ -550,26 +568,27 @@ export default function TransactionsScreen({ type }: TransactionsScreenProps) {
     }
     const item = selectedItem;
     const kgs = Number(item.kgs_transacted) || 0;
-    try {
-      await printTransactionReceipt(
-        item.seller?.name || 'Unknown', item.seller?.reg_no || '',
-        item.buyer?.name || 'Unknown', item.buyer?.reg_no || '',
-        kgs,
-        (item.coffee_type || type) as 'cherry' | 'mbuni',
-        item.transaction_date, item.transaction_time,
-        {
-          printerAddress, paperWidth,
-          receiptSettings: factorySettings?.settings?.receipt,
-          factoryInfo: factorySettings?.settings?.factoryInfo,
-          factoryName: factorySettings?.name,
-          clerk: item.profiles?.full_name || '',
-          receiptNo: item.receipt_no ?? undefined,
-        }
-      );
-      showToast('Receipt printed successfully', 'success');
-    } catch (e: any) {
-      showToast('Print failed: ' + e.message, 'error');
-    }
+    enqueuePrintJob({
+      type: 'transaction',
+      sellerName: item.seller?.name || 'Unknown',
+      sellerRegNo: item.seller?.reg_no || '',
+      buyerName: item.buyer?.name || 'Unknown',
+      buyerRegNo: item.buyer?.reg_no || '',
+      kgs,
+      coffeeType: (item.coffee_type || type) as 'cherry' | 'mbuni',
+      date: item.transaction_date,
+      time: item.transaction_time,
+      config: {
+        printerAddress,
+        paperWidth,
+        receiptSettings: factorySettings?.settings?.receipt,
+        factoryInfo: factorySettings?.settings?.factoryInfo,
+        factoryName: factorySettings?.name,
+        clerk: item.profiles?.full_name || '',
+        receiptNo: item.receipt_no ?? undefined,
+      },
+    });
+    showToast('Added to print queue', 'success');
     setMenuVisible(false);
   };
 
@@ -656,14 +675,13 @@ export default function TransactionsScreen({ type }: TransactionsScreenProps) {
               renderSectionHeader={renderSectionHeader}
               stickySectionHeadersEnabled
               onEndReached={loadMore}
-              onEndReachedThreshold={0.4}
-              refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => refreshAll('pullToRefresh')} colors={['#8c6239']} tintColor="#8c6239" />}
+              onEndReachedThreshold={0.6}
+              refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { if (!initDoneRef.current) { console.log(`👁️ [${type}] RefreshControl onRefresh — init not done yet, ignoring spurious fire`); return; } refreshAll('pullToRefresh'); }} colors={['#8c6239']} tintColor="#8c6239" />}
               onViewableItemsChanged={onViewableItemsChanged}
               viewabilityConfig={viewabilityConfig}
               initialNumToRender={20}
               maxToRenderPerBatch={20}
               windowSize={10}
-              removeClippedSubviews
               ListFooterComponent={loadingMore ? <ActivityIndicator style={{ margin: 16 }} color="#8c6239" /> : null}
               ListEmptyComponent={
                 <View style={styles.emptyContainer}>

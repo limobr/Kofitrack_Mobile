@@ -2,7 +2,9 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { DeviceEventEmitter } from 'react-native';
 
-export const API_BASE_URL = 'https://kofitrack.com'; // change to your IP
+// export const API_BASE_URL = 'https://kofitrack.com'; // change to your IP
+
+export const API_BASE_URL = 'http://192.168.100.6:3000/'; // change to your IP
 
 export const AUTH_EXPIRED_EVENT = 'auth:expired';
 

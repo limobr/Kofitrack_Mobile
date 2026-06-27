@@ -424,6 +424,7 @@ export default function DashboardScreen() {
         <View style={styles.actionsGrid}>
           <ActionButton icon="leaf" title="Record Delivery" onPress={() => navigation.navigate('RecordDelivery')} />
           <ActionButton icon="swap-horizontal" title="Record Transaction" onPress={() => navigation.navigate('RecordTransaction')} />
+          <ActionButton icon="stats-chart" title="Analytics" onPress={() => navigation.navigate('Analytics')} />
           {isAdmin && (
             <ActionButton icon="person-add" title="Add Member" onPress={() => navigation.navigate('AddMember')} />
           )}

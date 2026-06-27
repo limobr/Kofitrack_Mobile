@@ -7,7 +7,7 @@ import { Ionicons } from '@expo/vector-icons'
 import { useRoute, useNavigation } from '@react-navigation/native'
 import api from '../api/client'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { printStatementReceipt } from '../services/printService'
+import { enqueuePrintJob } from '../services/printQueue'
 
 interface BreakdownEntry {
   id: string | number
@@ -146,35 +146,32 @@ export default function CumulativeDetailScreen() {
     const entriesToPrint = isFiltered ? filteredEntries : entriesWithRunningTotal
     const totals = isFiltered ? periodTotals : cumulative
 
-    try {
-      await printStatementReceipt(
-        memberName,
-        memberReg,
-        memberPhone,
-        tab,
-        activeSeason,
-        entriesToPrint.map(e => ({
-          date: e.date,
-          time: e.time,             // include time
-          type: e.type,
-          kgs: e.kgs,
-          runningTotal: e.runningTotal,
-        })),
-        totals,
-        isFiltered ? startDate : undefined,
-        isFiltered ? endDate : undefined,
-        {
-          printerAddress,
-          paperWidth,
-          receiptSettings: factorySettings?.settings?.receipt,
-          factoryInfo: factorySettings?.settings?.factoryInfo,
-          factoryName: factorySettings?.name,
-          clerk: factorySettings?.settings?.receipt?.clerk || '',
-        }
-      )
-    } catch (e: any) {
-      Alert.alert('Print Error', e.message)
-    }
+    enqueuePrintJob({
+      type: 'statement',
+      memberName,
+      regNo: memberReg,
+      phone: memberPhone,
+      coffeeType: tab,
+      season: activeSeason,
+      entries: entriesToPrint.map(e => ({
+        date: e.date,
+        time: e.time,             // include time
+        type: e.type,
+        kgs: e.kgs,
+        runningTotal: e.runningTotal,
+      })),
+      totals,
+      periodStart: isFiltered ? startDate : undefined,
+      periodEnd: isFiltered ? endDate : undefined,
+      config: {
+        printerAddress,
+        paperWidth,
+        receiptSettings: factorySettings?.settings?.receipt,
+        factoryInfo: factorySettings?.settings?.factoryInfo,
+        factoryName: factorySettings?.name,
+        clerk: factorySettings?.settings?.receipt?.clerk || '',
+      },
+    })
     setFilterModalVisible(false)
   }
 

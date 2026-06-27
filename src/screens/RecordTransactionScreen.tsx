@@ -15,9 +15,11 @@ import { useNavigation } from '@react-navigation/native';
 import NetInfo from '@react-native-community/netinfo';
 import api from '../api/client';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { printTransactionReceipt } from '../services/printService';
+import { enqueuePrintJob } from '../services/printQueue';
 import { useAuth } from '../contexts/AuthContext';
 import Header from '../components/Header';
+import PrintBluetoothPromptModal from '../components/PrintBluetoothPromptModal';
+import { usePrintBluetoothPrompt } from '../hooks/usePrintBluetoothPrompt';
 import {
   refreshFactorySettings,
   getFactorySettings,
@@ -98,16 +100,23 @@ export default function RecordTransactionScreen() {
   const [isOnline, setIsOnline] = useState(true);
   const [focusedInput, setFocusedInput] = useState<'sellerReg' | 'buyerReg' | 'weight'>('sellerReg');
 
-  // Print‑related
-  const [printReceipt, setPrintReceipt] = useState(false);
-  const [printerConfigured, setPrinterConfigured] = useState(false);
-  const [bluetoothOn, setBluetoothOn] = useState(true);
+  // Print‑related — owned by the shared hook (preference, printer config,
+  // real Bluetooth state, and the "Bluetooth is Off" prompt).
+  const {
+    printReceipt,
+    printerConfigured,
+    canPrint,
+    btPromptVisible,
+    setBtPromptVisible,
+    handleTogglePrint,
+    dismissPromptAndDisablePrint,
+  } = usePrintBluetoothPrompt('printReceiptPreference_transaction');
+
   const [factorySettings, setFactorySettings] = useState<any>(null);
   const [clerkName, setClerkName] = useState('');
   const [activeSeasonName, setActiveSeasonName] = useState('');
   const [loadingSettings, setLoadingSettings] = useState(true);
 
-  // Toast
   const [toast, setToast] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const toastOpacity = useRef(new Animated.Value(0)).current;
   const toastTranslateY = useRef(new Animated.Value(-30)).current;
@@ -128,36 +137,11 @@ export default function RecordTransactionScreen() {
     }, 3000);
   };
 
-  const canPrint = printerConfigured && bluetoothOn;
-
-  // Load print preference
-  const loadPrintPreference = async () => {
-    try {
-      const saved = await AsyncStorage.getItem('printReceiptPreference_transaction');
-      if (saved !== null) {
-        const isPrintOn = saved === 'true';
-        setPrintReceipt(isPrintOn);
-        console.log(`🖨️ Transaction print preference loaded: ${isPrintOn ? 'ON' : 'OFF'}`);
-      } else {
-        console.log(`🖨️ Transaction print preference not set, default OFF`);
-      }
-    } catch (error) {
-      console.error('Failed to load print preference:', error);
-    }
-  };
-
-  const savePrintPreference = async (value: boolean) => {
-    try {
-      await AsyncStorage.setItem('printReceiptPreference_transaction', value.toString());
-      console.log(`🖨️ Transaction print preference saved: ${value ? 'ON' : 'OFF'}`);
-    } catch (error) {
-      console.error('Failed to save print preference:', error);
-    }
-  };
-
-  useEffect(() => {
-    if (!canPrint && printReceipt) setPrintReceipt(false);
-  }, [canPrint]);
+  // Print preference, printer config, and Bluetooth state (including the
+  // "Bluetooth is Off" prompt trigger) are owned by usePrintBluetoothPrompt
+  // above. We intentionally do NOT clear printReceipt when canPrint is
+  // false — the preference means "print when a printer is ready", not
+  // "print right now".
 
   // Monitor network status
   useEffect(() => {
@@ -167,16 +151,11 @@ export default function RecordTransactionScreen() {
     return () => unsubscribe();
   }, []);
 
-  // Load settings and print preference
+  // Load settings (factory info, clerk name, active season) used for
+  // receipt content. Printer/Bluetooth state is loaded by the shared hook.
   useEffect(() => {
     (async () => {
       try {
-        const raw = await AsyncStorage.getItem('selectedPrinter');
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (parsed.address) setPrinterConfigured(true);
-        }
-
         // Refresh from network; fall back to cached/disk copy when offline
         const factoryData = await refreshFactorySettings();
         if (factoryData) {
@@ -196,15 +175,6 @@ export default function RecordTransactionScreen() {
       } finally {
         setLoadingSettings(false);
       }
-
-      try {
-        const BleModule = require('react-native-ble-plx');
-        const manager = new BleModule.BleManager();
-        const state = await manager.state();
-        setBluetoothOn(state === 'PoweredOn');
-      } catch (_) {}
-
-      await loadPrintPreference();
     })();
   }, []);
 
@@ -351,38 +321,34 @@ export default function RecordTransactionScreen() {
       const updatedCumulative = await fetchSellerCumulative(seller.id, type);
 
       if (printReceipt && printerConfigured && updatedCumulative) {
-        try {
-          const printerRaw = await AsyncStorage.getItem('selectedPrinter');
-          const printer = printerRaw ? JSON.parse(printerRaw) : {};
-          const pwStr = await AsyncStorage.getItem('paperWidth');
-          const paperWidth = (pwStr === '80' ? 80 : 58) as 58 | 80;
-          const now = new Date();
+        const printerRaw = await AsyncStorage.getItem('selectedPrinter');
+        const printer = printerRaw ? JSON.parse(printerRaw) : {};
+        const pwStr = await AsyncStorage.getItem('paperWidth');
+        const paperWidth = (pwStr === '80' ? 80 : 58) as 58 | 80;
+        const now = new Date();
 
-          await printTransactionReceipt(
-            seller.name,
-            seller.reg_no,
-            buyer.name,
-            buyer.reg_no,
-            parseFloat(weight),
-            type,
-            now.toLocaleDateString(),
-            now.toLocaleTimeString(),
-            {
-              printerAddress: printer.address,
-              paperWidth,
-              receiptSettings: factorySettings?.settings?.receipt,
-              factoryInfo: factorySettings?.settings?.factoryInfo,
-              factoryName: factorySettings?.name,
-              season: activeSeasonName,
-              clerk: clerkName,
-              receiptNo: txData?.transaction?.receipt_no || txData?.id,
-              netTotal: updatedCumulative.net,
-            }
-          );
-          showToast('Receipt printed', 'success');
-        } catch (printErr) {
-          showToast('Print failed, but transaction saved', 'error');
-        }
+        enqueuePrintJob({
+          type: 'transaction',
+          sellerName: seller.name,
+          sellerRegNo: seller.reg_no,
+          buyerName: buyer.name,
+          buyerRegNo: buyer.reg_no,
+          kgs: parseFloat(weight),
+          coffeeType: type,
+          date: now.toLocaleDateString(),
+          time: now.toLocaleTimeString(),
+          config: {
+            printerAddress: printer.address,
+            paperWidth,
+            receiptSettings: factorySettings?.settings?.receipt,
+            factoryInfo: factorySettings?.settings?.factoryInfo,
+            factoryName: factorySettings?.name,
+            season: activeSeasonName,
+            clerk: clerkName,
+            receiptNo: txData?.transaction?.receipt_no || txData?.id,
+            netTotal: updatedCumulative.net,
+          },
+        });
       }
     } catch (e: any) {
       showToast(e.response?.data?.error || 'Failed', 'error');
@@ -391,48 +357,65 @@ export default function RecordTransactionScreen() {
     }
   };
 
-  const handleTogglePrint = (value: boolean) => {
-    if (value && !canPrint) {
-      Alert.alert(
-        'Printer Not Ready',
-        !bluetoothOn
-          ? 'Bluetooth is off. Please turn it on and configure your printer in settings.'
-          : 'No printer has been configured. Please go to Account settings to set up your printer.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Go to Settings', onPress: () => navigation.navigate('Account') },
-        ]
-      );
-      return;
-    }
-    setPrintReceipt(value);
-    savePrintPreference(value);
+  const handleTogglePrintWithToast = (value: boolean) => {
+    handleTogglePrint(value, () => {
+      showToast('No printer configured. Go to Settings to set one up.', 'error');
+    });
   };
 
   const headerRight = (
     <View style={styles.headerRightContainer}>
       <View style={[styles.statusIndicator, isOnline ? styles.onlineBg : styles.offlineBg]}>
-        <Ionicons
-          name={isOnline ? 'wifi' : 'cloud-offline'}
-          size={14}
-          color={isOnline ? '#2e7d32' : '#c62828'}
-        />
+        {isOnline ? (
+          <View style={styles.wifiIcon}>
+            <View style={[styles.wifiArc, styles.wifiArcLg, { borderColor: '#2e7d32' }]} />
+            <View style={[styles.wifiArc, styles.wifiArcMd, { borderColor: '#2e7d32' }]} />
+            <View style={[styles.wifiDot, { backgroundColor: '#2e7d32' }]} />
+          </View>
+        ) : (
+          <View style={styles.offlineIcon}>
+            <View style={[styles.offlineBar, { transform: [{ rotate: '45deg' }], backgroundColor: '#c62828' }]} />
+            <View style={[styles.offlineBar, { transform: [{ rotate: '-45deg' }], backgroundColor: '#c62828' }]} />
+          </View>
+        )}
         <Text style={[styles.statusText, isOnline ? styles.onlineText : styles.offlineText]}>
           {isOnline ? 'Online' : 'Offline'}
         </Text>
       </View>
       <TouchableOpacity
-        style={[styles.printToggle, printReceipt && styles.printToggleActive]}
-        onPress={() => handleTogglePrint(!printReceipt)}
-        disabled={!canPrint}
+        style={[
+          styles.printToggle,
+          printReceipt && styles.printToggleActive,
+          printReceipt && !canPrint && styles.printToggleWarn,
+        ]}
+        onPress={() => handleTogglePrintWithToast(!printReceipt)}
+        activeOpacity={0.75}
+        accessibilityLabel={printReceipt ? 'Print receipt: on' : 'Print receipt: off'}
       >
-        <Ionicons name="print-outline" size={20} color={printReceipt ? '#fff' : '#6b5e53'} />
+        <View style={styles.printerIconWrap}>
+          <View style={[styles.printerBody, { borderColor: printReceipt ? '#fff' : '#6b5e53' }]} />
+          <View style={[styles.printerTray, { backgroundColor: printReceipt ? '#fff' : '#6b5e53' }]} />
+        </View>
+        <Text style={[styles.printToggleLabel, printReceipt && styles.printToggleLabelActive]}>
+          Print
+        </Text>
       </TouchableOpacity>
     </View>
   );
 
   return (
     <View style={styles.container}>
+      {/* ── Bluetooth off prompt ─────────────────────────────────────────── */}
+      <PrintBluetoothPromptModal
+        visible={btPromptVisible}
+        onClose={() => setBtPromptVisible(false)}
+        onGoToSettings={() => {
+          setBtPromptVisible(false);
+          navigation.navigate('PrinterSettings');
+        }}
+        onProceedWithoutPrinting={dismissPromptAndDisablePrint}
+      />
+
       <View ref={headerRef} onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}>
         <Header title="Record Transaction" showBack={true} rightElement={headerRight} />
       </View>
@@ -636,15 +619,56 @@ const styles = StyleSheet.create({
   statusText: { fontSize: 12, fontWeight: '600' },
   onlineText: { color: '#2e7d32' },
   offlineText: { color: '#c62828' },
+  // Wifi icon
+  wifiIcon: { width: 14, height: 12, alignItems: 'center', justifyContent: 'flex-end' },
+  wifiArc: {
+    position: 'absolute',
+    borderTopWidth: 2,
+    borderLeftWidth: 0,
+    borderRightWidth: 0,
+    borderBottomWidth: 0,
+    borderRadius: 999,
+  },
+  wifiArcLg: { width: 14, height: 10, top: 0 },
+  wifiArcMd: { width: 9,  height: 7,  top: 3 },
+  wifiDot: { width: 3, height: 3, borderRadius: 2, marginTop: 2 },
+  // Offline X icon
+  offlineIcon: { width: 14, height: 14, alignItems: 'center', justifyContent: 'center' },
+  offlineBar: { position: 'absolute', width: 12, height: 2, borderRadius: 1 },
+  // Printer icon
+  printerIconWrap: { alignItems: 'center' },
+  printerBody: {
+    width: 16,
+    height: 11,
+    borderRadius: 3,
+    borderWidth: 2,
+    backgroundColor: 'transparent',
+  },
+  printerTray: {
+    width: 10,
+    height: 4,
+    borderRadius: 1,
+    marginTop: -1,
+  },
   printToggle: {
-    width: 32,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
     height: 32,
+    paddingHorizontal: 10,
     borderRadius: 16,
     backgroundColor: '#f0ece6',
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   printToggleActive: { backgroundColor: '#8c6239' },
+  printToggleWarn: { backgroundColor: '#b45309' },  // amber — on but printer not ready
+  printToggleLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#6b5e53',
+  },
+  printToggleLabelActive: {
+    color: '#fff',
+  },
   toastOverlay: {
     position: 'absolute',
     left: 20,

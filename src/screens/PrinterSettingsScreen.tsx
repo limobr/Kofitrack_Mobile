@@ -9,15 +9,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { printDeliveryReceipt } from '../services/printService'
 import Header from '../components/Header'
+import BluetoothClassic from '../services/bluetoothClassic'
 
-// ─── Safe import of react-native-bluetooth-classic ───────────────────────────
-let BluetoothClassic: any = null
-try {
-  const mod = require('react-native-bluetooth-classic')
-  BluetoothClassic = mod.default || mod
-} catch (e) {
-  console.warn('react-native-bluetooth-classic not available')
-}
+// ─── Bluetooth Classic (shared wrapper, see src/services/bluetoothClassic.ts) ─
 
 interface ClassicDevice {
   address: string

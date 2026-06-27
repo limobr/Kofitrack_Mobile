@@ -12,7 +12,7 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import NetInfo from '@react-native-community/netinfo';
 import api from '../api/client';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { printDeliveryReceipt } from '../services/printService';
+import { enqueuePrintJob } from '../services/printQueue';
 import { syncPendingDeliveries } from '../services/syncService';
 import {
   getAllLocalDeliveries,
@@ -531,7 +531,21 @@ export default function DeliveriesScreen({ type }: DeliveriesScreenProps) {
     console.log(`🚀 [${type}] mount init — starting`);
 
     const init = async () => {
-      setLoading(true);
+      // 1. Instant paint from cache, if we have one — regardless of
+      // online/offline state. This avoids showing a blank spinner on every
+      // cold open while online when we already have something to show.
+      const cached = await loadCache(type);
+      console.log(`🚀 [${type}] mount init — cache items=${cached?.length ?? 0}`);
+      if (cached && cached.length) {
+        if (!cancelled) {
+          setServerDeliveries(cached);
+          setLoading(false);
+        }
+      } else {
+        if (!cancelled) setLoading(true);
+      }
+
+      // 2. Background refresh from server (replaces cache silently on success)
       const net = await NetInfo.fetch();
       console.log(`🚀 [${type}] mount init — isConnected=${net.isConnected}`);
 
@@ -542,10 +556,10 @@ export default function DeliveriesScreen({ type }: DeliveriesScreenProps) {
 
       if (net.isConnected) {
         await fetchServerDeliveries(true, 'mountInit');
-      } else {
-        const cached = await loadCache(type);
-        console.log(`🚀 [${type}] mount init — offline, cache items=${cached?.length ?? 0}`);
-        if (!cancelled) setServerDeliveries(cached || []);
+      } else if (!cached) {
+        // no cache and offline — nothing more we can do
+        console.log(`🚀 [${type}] mount init — offline, no cache`);
+        setHasMore(false);
       }
 
       if (!cancelled) {
@@ -607,7 +621,12 @@ export default function DeliveriesScreen({ type }: DeliveriesScreenProps) {
   // ─── Load more (pagination) ──────────────────────────────────────────────────
 
   const loadMore = async () => {
-    if (loadingMore || !hasMore || isFetching.current) return;
+    // Guard against onEndReached firing while mount-init's cache paint is
+    // showing but the background refresh (which sets the real offset)
+    // hasn't completed yet — otherwise this fires at offset=0 and appends
+    // a duplicate first page on top of the cached items, causing duplicate
+    // keys in the SectionList.
+    if (!initDoneRef.current || loadingMore || !hasMore || isFetching.current) return;
     const net = await NetInfo.fetch();
     if (!net.isConnected) return;
     console.log(`📄 [${type}] loadMore — offset=${offsetRef.current}`);
@@ -765,26 +784,27 @@ export default function DeliveriesScreen({ type }: DeliveriesScreenProps) {
       setMenuVisible(false);
       return;
     }
-    try {
-      const item = selectedItem;
-      await printDeliveryReceipt(
-        item.members?.name || '', item.members?.reg_no || '',
-        Number(item.kgs_delivered), (item.coffee_type || type) as 'cherry' | 'mbuni',
-        item.delivery_date, item.delivery_time,
-        {
-          printerAddress: addr, paperWidth: pw,
-          receiptSettings: factorySettings?.settings?.receipt,
-          factoryInfo: factorySettings?.settings?.factoryInfo,
-          factoryName: factorySettings?.name,
-          clerk: item.profiles?.full_name || '',
-          receiptNo: item.receipt_no ?? undefined,
-          season: (item as any).season_name || undefined,
-        }
-      );
-      showToast('Receipt printed', 'success');
-    } catch (e: any) {
-      showToast('Print failed: ' + e.message, 'error');
-    }
+    const item = selectedItem;
+    enqueuePrintJob({
+      type: 'delivery',
+      memberName: item.members?.name || '',
+      regNo: item.members?.reg_no || '',
+      kgs: Number(item.kgs_delivered),
+      coffeeType: (item.coffee_type || type) as 'cherry' | 'mbuni',
+      date: item.delivery_date,
+      time: item.delivery_time,
+      config: {
+        printerAddress: addr,
+        paperWidth: pw,
+        receiptSettings: factorySettings?.settings?.receipt,
+        factoryInfo: factorySettings?.settings?.factoryInfo,
+        factoryName: factorySettings?.name,
+        clerk: item.profiles?.full_name || '',
+        receiptNo: item.receipt_no ?? undefined,
+        season: (item as any).season_name || undefined,
+      },
+    });
+    showToast('Added to print queue', 'success');
     setMenuVisible(false);
   };
 
@@ -917,11 +937,17 @@ export default function DeliveriesScreen({ type }: DeliveriesScreenProps) {
               renderSectionHeader={renderSectionHeader}
               stickySectionHeadersEnabled
               onEndReached={loadMore}
-              onEndReachedThreshold={0.4}
+              onEndReachedThreshold={0.6}
               refreshControl={
                 <RefreshControl
                   refreshing={refreshing}
-                  onRefresh={() => refreshAll('pullToRefresh')}
+                  onRefresh={() => {
+                    if (!initDoneRef.current) {
+                      console.log(`👁️ [${type}] RefreshControl onRefresh — init not done yet, ignoring spurious fire`);
+                      return;
+                    }
+                    refreshAll('pullToRefresh');
+                  }}
                   colors={['#8c6239']}
                   tintColor="#8c6239"
                 />
@@ -931,7 +957,6 @@ export default function DeliveriesScreen({ type }: DeliveriesScreenProps) {
               initialNumToRender={20}
               maxToRenderPerBatch={20}
               windowSize={10}
-              removeClippedSubviews
               ListFooterComponent={
                 loadingMore
                   ? <ActivityIndicator style={{ margin: 16 }} color="#8c6239" />
